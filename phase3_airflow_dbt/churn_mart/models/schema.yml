@@ -1,0 +1,58 @@
+version: 2
+
+models:
+  - name: stg_churn
+    description: Cleaned and standardized raw telecom churn data. One row per customer.
+    columns:
+      - name: customer_id
+        description: Unique identifier for each customer
+      - name: is_churned
+        description: 1 if the customer left, 0 if they stayed
+      - name: monthly_charges
+        description: Amount charged to the customer per month
+      - name: total_charges
+        description: Total amount charged over the customer lifetime
+
+  - name: int_customer_features
+    description: Staging data enriched with calculated features — CLV, risk score, tenure segment.
+    columns:
+      - name: customer_id
+        description: Unique identifier for each customer
+      - name: clv
+        description: Customer lifetime value — monthly_charges multiplied by tenure
+      - name: risk_score
+        description: Churn risk score — higher means more likely to churn
+      - name: tenure_segment
+        description: New / Developing / Established / Loyal based on months active
+
+  - name: dim_customers
+    description: Customer dimension table — demographics and account information.
+    columns:
+      - name: customer_id
+        description: Primary key — unique identifier for each customer
+
+  - name: dim_services
+    description: Services dimension table — what each customer subscribes to.
+    columns:
+      - name: customer_id
+        description: Foreign key — links to dim_customers and fct_churn
+
+  - name: fct_churn
+    description: Fact table — one row per customer with churn outcome and key metrics.
+    columns:
+      - name: customer_id
+        description: Primary key
+      - name: is_churned
+        description: 1 if churned, 0 if retained
+      - name: risk_score
+        description: Higher score means higher churn probability
+
+  - name: mart_churn_kpis
+    description: Final KPI summary — churn rate, revenue lost, and risk by contract type.
+    columns:
+      - name: contract
+        description: Contract type — Month-to-month, One year, Two year
+      - name: churn_rate_pct
+        description: Percentage of customers who churned in this contract group
+      - name: annual_revenue_lost
+        description: Total annual revenue lost due to churn in this contract group

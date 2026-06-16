@@ -1,0 +1,13 @@
+version: 2
+
+sources:
+  - name: churn_raw
+    database: FRAUD_DB
+    schema: CHURN_RAW
+    tables:
+      - name: RAW_CHURN
+        description: Raw telecom customer churn data loaded from CSV
+
+# name: churn_raw → gives this source a nickname we use in our SQL models
+# database / schema → tells dbt exactly where in Snowflake to find the data
+# tables → lists which tables exist in that schema

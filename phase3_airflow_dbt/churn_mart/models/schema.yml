@@ -6,8 +6,13 @@ models:
     columns:
       - name: customer_id
         description: Unique identifier for each customer
+        tests:
+          - unique
+          - not_null
       - name: is_churned
         description: 1 if the customer left, 0 if they stayed
+        tests:
+          - not_null
       - name: monthly_charges
         description: Amount charged to the customer per month
       - name: total_charges
@@ -18,6 +23,9 @@ models:
     columns:
       - name: customer_id
         description: Unique identifier for each customer
+        tests:
+          - unique
+          - not_null
       - name: clv
         description: Customer lifetime value — monthly_charges multiplied by tenure
       - name: risk_score
@@ -30,20 +38,31 @@ models:
     columns:
       - name: customer_id
         description: Primary key — unique identifier for each customer
+        tests:
+          - unique
+          - not_null
 
   - name: dim_services
     description: Services dimension table — what each customer subscribes to.
     columns:
       - name: customer_id
         description: Foreign key — links to dim_customers and fct_churn
+        tests:
+          - unique
+          - not_null
 
   - name: fct_churn
     description: Fact table — one row per customer with churn outcome and key metrics.
     columns:
       - name: customer_id
         description: Primary key
+        tests:
+          - unique
+          - not_null
       - name: is_churned
         description: 1 if churned, 0 if retained
+        tests:
+          - not_null
       - name: risk_score
         description: Higher score means higher churn probability
 
@@ -52,6 +71,9 @@ models:
     columns:
       - name: contract
         description: Contract type — Month-to-month, One year, Two year
+        tests:
+          - unique
+          - not_null
       - name: churn_rate_pct
         description: Percentage of customers who churned in this contract group
       - name: annual_revenue_lost

@@ -2,3 +2,6 @@ phase1_sql/data/
 data/
 .env
 phase3_airflow_dbt/logs/
+phase4_nifi_kafka_spark/nifi/output/
+phase4_nifi_kafka_spark/data/
+phase4_nifi_kafka_spark/spark/output/

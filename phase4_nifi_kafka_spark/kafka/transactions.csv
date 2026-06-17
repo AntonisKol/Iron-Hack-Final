@@ -1,0 +1,21 @@
+transaction_id,customer_id,amount,merchant,category,status
+TXN001,C1042,250.00,Amazon,retail,SUCCESS
+TXN002,C2381,1200.50,Emirates,travel,SUCCESS
+TXN003,C3094,45.99,Uber Eats,food,SUCCESS
+TXN004,C1042,8900.00,Unknown Vendor,retail,ERROR
+TXN005,C4821,320.00,Apple Store,electronics,SUCCESS
+TXN006,C5530,15.00,McDonald's,food,SUCCESS
+TXN007,C2381,450.00,Booking.com,travel,SUCCESS
+TXN008,C6701,12000.00,Unknown Vendor,electronics,ERROR
+TXN009,C3094,89.99,Spotify,electronics,SUCCESS
+TXN010,C7842,200.00,Zara,retail,SUCCESS
+TXN011,C1042,560.00,Lufthansa,travel,SUCCESS
+TXN012,C8903,35.50,Deliveroo,food,SUCCESS
+TXN013,C2381,7500.00,Unknown Vendor,retail,ERROR
+TXN014,C4821,99.00,Netflix,electronics,SUCCESS
+TXN015,C5530,1800.00,IKEA,retail,SUCCESS
+TXN016,C6701,22.00,Starbucks,food,SUCCESS
+TXN017,C3094,3200.00,Samsung,electronics,SUCCESS
+TXN018,C7842,650.00,Ryanair,travel,SUCCESS
+TXN019,C8903,11000.00,Unknown Vendor,travel,ERROR
+TXN020,C1042,180.00,H&M,retail,SUCCESS

@@ -194,6 +194,65 @@ Smaller watermark = less memory = results faster = more data dropped.
 
 ---
 
+### Q5 — NiFi Kafka Ingest with MergeContent
+
+**Goal:** Consume a Kafka topic in NiFi, batch every 1,000 records (or 10 seconds, whichever comes first) into a single JSON array, and write to HDFS.
+
+**Flow:**
+```
+ConsumeKafka → MergeContent → PutHDFS
+```
+
+**Processor settings:**
+
+| Processor | Key Property | Value |
+|-----------|-------------|-------|
+| ConsumeKafka | Bootstrap Servers | `localhost:9092` |
+| ConsumeKafka | Topic Name | `nifi-transactions` |
+| ConsumeKafka | Group ID | `nifi-consumer` |
+| ConsumeKafka | Offset Reset | `earliest` |
+| MergeContent | Merge Strategy | Bin-Packing Algorithm |
+| MergeContent | Minimum Number of Entries | `1000` |
+| MergeContent | Maximum Number of Entries | `1000` |
+| MergeContent | Maximum Bin Age | `10 sec` |
+| MergeContent | Header | `[` |
+| MergeContent | Demarcator | `,` |
+| MergeContent | Footer | `]` |
+| PutHDFS | Directory | `/data/transactions` |
+
+**How MergeContent batching works:**
+
+MergeContent holds FlowFiles in a bin and releases the bin when EITHER condition is met first:
+- **1,000 records collected** — full batch, write immediately
+- **10 seconds elapsed** — partial batch, write whatever arrived (prevents data being stuck if Kafka traffic is low)
+
+This is called a **time-or-count trigger** — it guarantees both throughput and latency bounds.
+
+**Failure handling strategies:**
+
+1. **ConsumeKafka failure**
+   - Kafka offsets are only committed after NiFi acknowledges processing — if NiFi crashes, messages are re-consumed from the last committed offset. No data loss.
+   - Route `parse.failure` to a dead-letter folder for inspection.
+
+2. **MergeContent failure**
+   - Route `failure` relationship to a PutFile in an error folder — partial batches are saved, not dropped.
+   - Use LogMessage processor to log the failure with FlowFile attributes for debugging.
+
+3. **PutHDFS failure**
+   - HDFS is unavailable → route `failure` to a local staging folder. A separate flow retries writing once HDFS recovers.
+   - Use RetryFlowFile processor for automatic retries with exponential back-off.
+
+4. **Back pressure**
+   - Set Object Threshold on the ConsumeKafka → MergeContent connection to pause consumption if MergeContent falls behind. Kafka retains the messages — they are not lost, just delayed.
+
+5. **Provenance**
+   - Every FlowFile has a full audit trail in NiFi Data Provenance — you can trace exactly which Kafka offset produced which file.
+
+**Local implementation note:**
+In this project, PutHDFS is replaced with PutFile writing to `kafka/output/` since HDFS is not running locally. The flow logic is identical — only the destination processor changes.
+
+---
+
 ### Q18 — Real-Time Retail Analytics Platform Architecture
 
 **Scenario:** A retail company with point-of-sale systems needs real-time analytics.

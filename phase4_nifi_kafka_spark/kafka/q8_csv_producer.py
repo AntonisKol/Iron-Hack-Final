@@ -1,34 +1,3 @@
-"""
-Q8 — Kafka Producer: CSV to JSON messages with at-least-once delivery.
-
-WHAT THIS SCRIPT DOES:
-  Reads every row from transactions.csv and sends it as a JSON message
-  to the 'csv-transactions' Kafka topic.
-
-AT-LEAST-ONCE DELIVERY:
-  A message is "at-least-once" when the producer guarantees it will never
-  be lost, but may be delivered more than once (if the broker crashes after
-  receiving the message but before sending the ack back, the producer retries
-  and the broker stores it again). The consumer must handle duplicates.
-
-  This is achieved with two settings:
-    acks='all'  → broker waits for ALL in-sync replicas to confirm the write
-                  before sending an ack. Even if the leader broker dies, the
-                  message survives on the followers.
-    retries=5   → on any transient failure (network blip, leader election),
-                  retry up to 5 times before giving up.
-
-ASYNC VS SYNC SENDING:
-  send() is non-blocking — it returns immediately and queues the message in
-  an internal buffer. A background thread handles the actual network I/O and
-  fires the callbacks when the broker responds. This allows the producer to
-  send thousands of messages without waiting for each ack individually.
-  flush() at the end blocks until all pending messages are fully delivered.
-
-Run with:
-    python3 phase4_nifi_kafka_spark/kafka/q8_csv_producer.py
-"""
-
 from kafka import KafkaProducer
 from kafka.errors import KafkaError   # base class for all Kafka-related exceptions
 import json

@@ -1,38 +1,3 @@
-"""
-Q9 — Kafka Streams application (Python implementation).
-
-WHAT THIS DOES:
-  Reads from the 'transactions' topic, filters transactions above $10,000,
-  groups by customer_id, and computes a running total per customer.
-  Writes updated totals to the 'high-value-customers' topic.
-
-KAFKA STREAMS CONCEPTS USED (mapped to Python):
-  ┌─────────────────────────────────────────────────────────────────┐
-  │ Kafka Streams (Java)          │ This script (Python)            │
-  ├─────────────────────────────────────────────────────────────────┤
-  │ KStream (input stream)        │ KafkaConsumer reading messages  │
-  │ .filter(amount > 10000)       │ if amount > 10000: ...          │
-  │ .groupBy(customer_id)         │ running_totals[customer_id]     │
-  │ .aggregate(running total)     │ running_totals[id] += amount    │
-  │ KTable (stateful store)       │ running_totals dict (in-memory) │
-  │ .toStream().to(output topic)  │ KafkaProducer writing results   │
-  └─────────────────────────────────────────────────────────────────┘
-
-STATEFUL vs STATELESS:
-  - filter() is STATELESS — each message is decided independently
-  - aggregate() is STATEFUL — it remembers previous values (the running total)
-    In real Kafka Streams, this state is stored in a local RocksDB store
-    backed by a changelog Kafka topic for fault tolerance.
-    Here we use a Python dict in memory — simpler, same logic.
-
-Run with:
-    python3 phase4_nifi_kafka_spark/kafka/q9_streams_app.py
-    (keep it running — it processes messages as they arrive)
-
-Then in another terminal run the producer:
-    python3 phase4_nifi_kafka_spark/kafka/q9_test_producer.py
-"""
-
 from kafka import KafkaConsumer, KafkaProducer
 from kafka.errors import KafkaError
 import json

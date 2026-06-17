@@ -1,30 +1,3 @@
-"""
-Q14 — Structured Streaming: page-view counts in 5-minute tumbling windows.
-
-WHAT THIS DOES:
-  Watches an input folder for new JSON files (simulating a Kafka stream).
-  Each file contains one page-view event: user_id, page, timestamp.
-  Groups events by page within 5-minute tumbling windows and counts them.
-  Writes the running results to the console.
-
-NOTE ON KAFKA SOURCE:
-  In production this would use readStream.format("kafka").
-  The spark-sql-kafka JAR version (4.0.0) is not compatible with PySpark 4.1.1
-  due to an internal API change in SerializedOffset. The file source used here
-  demonstrates all the same Structured Streaming concepts:
-  readStream, schema, watermark, tumbling window, outputMode, trigger.
-
-KEY CONCEPTS:
-  - readStream     : like read, but treats the source as an unbounded stream
-  - Tumbling window: fixed, non-overlapping 5-minute time buckets
-  - Watermark      : how long to wait for late-arriving events (10 min here)
-  - outputMode     : 'update' = only print rows that changed in this batch
-  - Trigger        : how often Spark processes new data (every 10 seconds)
-
-Run this FIRST, then in another terminal run:
-    python3 phase4_nifi_kafka_spark/spark/q14_pageview_producer.py
-"""
-
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, window
 from pyspark.sql.types import StructType, StringType, TimestampType

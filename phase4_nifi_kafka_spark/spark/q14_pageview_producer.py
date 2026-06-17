@@ -1,13 +1,3 @@
-"""
-Producer for Q14 — writes page-view JSON files to the streaming input folder.
-Spark watches that folder and processes each new file as a micro-batch.
-
-In production this would be a Kafka producer sending to the 'page-views' topic.
-The streaming logic (window, watermark, count) is identical either way.
-
-Run AFTER starting q14_page_views_stream.py.
-"""
-
 from datetime import datetime, timedelta
 import random
 import json

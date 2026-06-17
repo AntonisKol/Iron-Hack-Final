@@ -1,25 +1,3 @@
-"""
-Q11 — Spark job: join orders + customers, find top 5 spenders per city,
-write result as Parquet partitioned by city.
-
-WHAT THIS DEMONSTRATES:
-  - Creating DataFrames from in-memory data (no external files needed)
-  - DataFrame join (inner join on customer_id)
-  - Aggregation: groupBy + sum + orderBy
-  - Window function: rank within each city partition
-  - Writing Parquet files partitioned by a column
-
-WHY PARQUET?
-  Parquet is a columnar file format — it stores data column by column instead
-  of row by row. This means if a query only needs 'city' and 'total_spend',
-  Spark only reads those two columns off disk, skipping everything else.
-  Partitioning by city means each city's data lives in its own folder —
-  a query for city='London' only reads the London folder, not the whole dataset.
-
-Run with:
-    python3 phase4_nifi_kafka_spark/spark/q11_top_customers.py
-"""
-
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import sum as _sum, col, rank, desc
 from pyspark.sql.window import Window

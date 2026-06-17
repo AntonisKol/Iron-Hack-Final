@@ -1,12 +1,3 @@
-"""
-Mock REST API for NiFi Q4.
-Returns a JSON array of records with a 'status' field (SUCCESS or ERROR).
-NiFi polls this every 5 minutes via InvokeHTTP.
-
-Run with:
-    python3 phase4_nifi_kafka_spark/nifi/mock_api.py
-"""
-
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import json
 

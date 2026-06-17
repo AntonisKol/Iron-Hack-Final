@@ -1,26 +1,3 @@
-"""
-Q19 — Sensor producer that simulates both on-time and late-arriving events.
-
-WHAT THIS DOES:
-  Phase 1 (on-time):  writes 60 readings with current timestamps.
-                      Spark processes these and writes initial aggregates.
-  Pause:              waits 35 seconds — enough for Spark to process Phase 1
-                      and commit the window results to Snowflake.
-  Phase 2 (late):     writes 15 readings with timestamps 7–9 minutes in the past.
-                      These fall into windows Spark has ALREADY aggregated.
-                      Spark re-emits those windows with updated counts.
-                      The foreachBatch function detects the existing rows in
-                      Snowflake and writes correction entries.
-
-EXPECTED OUTPUT IN SNOWFLAKE:
-  SENSOR_AGGREGATES:        rows updated (avg_temp and reading_count change)
-  SENSOR_CORRECTIONS_HISTORY: original v1 rows + correction v2 rows side by side
-
-This demonstrates the full late-data handling lifecycle.
-
-Run AFTER starting q19_late_data_stream.py.
-"""
-
 import json
 import os
 import random

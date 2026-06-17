@@ -1,39 +1,3 @@
-"""
-Kafka producer for NiFi Q5.
-Sends 2,500 JSON transaction records to the 'nifi-transactions' topic.
-NiFi consumes them with ConsumeKafka and merges every 1,000 records
-(or every 10 seconds) into a single JSON array using MergeContent.
-
-Run with:
-    python3 phase4_nifi_kafka_spark/kafka/kafka_producer_q5.py
-
-──────────────────────────────────────────────────────────────────
-NiFi flow settings (not visible in this code):
-──────────────────────────────────────────────────────────────────
-ConsumeKafka:
-  - Kafka Connection Service → KafkaConnectionService
-      Bootstrap Servers: localhost:9092   ← same broker this script sends to
-  - Group ID: nifi-consumer               ← Kafka tracks this consumer's offset
-  - Topics: nifi-transactions             ← same topic this script writes to
-  - Auto Offset Reset: earliest           ← if NiFi restarts, re-read from start
-  - Each Kafka message becomes one FlowFile in NiFi
-
-MergeContent:
-  - Minimum / Maximum Number of Entries: 1000
-      → collects 1,000 FlowFiles then releases them as one merged file
-  - Maximum Bin Age: 10 sec
-      → if fewer than 1,000 arrive within 10 seconds, releases whatever it has
-        (prevents data sitting in NiFi forever during low-traffic periods)
-  - Header: [   Demarcator: ,   Footer: ]
-      → wraps the 1,000 JSON objects into a valid JSON array: [{...},{...},...]
-
-PutFile (replaces PutHDFS in this local setup):
-  - Directory: phase4_nifi_kafka_spark/kafka/output
-  - In production this would be PutHDFS writing to /data/transactions/
-  - Conflict Resolution: replace
-──────────────────────────────────────────────────────────────────
-"""
-
 from kafka import KafkaProducer   # kafka-python client library
 import json
 import random

@@ -1,4 +1,4 @@
--- BLOCK 1: Database & Schema
+
 CREATE DATABASE IF NOT EXISTS FRAUD_DB;
 USE DATABASE FRAUD_DB;
 CREATE SCHEMA IF NOT EXISTS FRAUD_SCHEMA;
@@ -31,7 +31,7 @@ CREATE OR REPLACE TABLE BANK_TRANSACTIONS (
         is_fraud INT,
         fraud_type VARCHAR
     );
--- Defines HOW to read the file — the rules written on the
+
 CREATE OR REPLACE FILE FORMAT fraud_csv_format TYPE = 'CSV' FIELD_DELIMITER = ',' -- columns are comma-separated
     FIELD_OPTIONALLY_ENCLOSED_BY = '"' -- some values like "New York" are quoted
     NULL_IF = ('', 'NULL', 'null') -- treats empty cells and the word NULL as actual SQL NULL

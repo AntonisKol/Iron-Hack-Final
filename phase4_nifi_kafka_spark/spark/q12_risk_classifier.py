@@ -1,37 +1,3 @@
-"""
-Q12 — Spark UDF risk classifier writing to Snowflake.
-
-WHAT THIS DOES:
-  1. Reads risk_records.json with Spark
-  2. Applies a custom UDF that classifies each record as 'high', 'medium', or 'low' risk
-  3. Splits the DataFrame into 3 (one per risk level)
-  4. Writes each to a separate Snowflake table
-
-WHAT IS A UDF?
-  A UDF (User Defined Function) is a custom Python function registered with Spark
-  so it can be applied to every row of a DataFrame — like a built-in column function
-  but written by you. Spark distributes it across all workers automatically.
-
-SPARK-SNOWFLAKE CONNECTOR NOTE:
-  The official connector (spark-snowflake) does not yet support PySpark 4.x.
-  In production on Spark 3.x you would replace the snowflake-connector-python
-  write section with:
-
-    df.write \
-        .format("net.snowflake.spark.snowflake") \
-        .options(**snowflake_options) \
-        .option("dbtable", "RISK_HIGH") \
-        .mode("overwrite") \
-        .save()
-
-  where snowflake_options contains sfURL, sfUser, sfPassword, sfDatabase, etc.
-  This is faster because data flows directly from Spark workers to Snowflake
-  without going through the driver node.
-
-Run with:
-    python3 phase4_nifi_kafka_spark/spark/q12_risk_classifier.py
-"""
-
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import udf, col
 from pyspark.sql.types import StringType

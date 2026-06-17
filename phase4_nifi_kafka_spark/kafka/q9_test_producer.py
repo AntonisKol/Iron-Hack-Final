@@ -1,11 +1,3 @@
-"""
-Test producer for Q9.
-Sends transactions to the 'transactions' topic — mix of amounts
-above and below $10,000 so we can verify the filter works.
-
-Run AFTER starting q9_streams_app.py in another terminal.
-"""
-
 from kafka import KafkaProducer
 import json
 

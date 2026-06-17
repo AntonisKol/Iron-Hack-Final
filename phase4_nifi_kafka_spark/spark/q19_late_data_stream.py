@@ -1,39 +1,3 @@
-"""
-Q19 — Late-data handling: IoT → Spark Structured Streaming → Snowflake
-
-WHAT THIS DOES:
-  Reads IoT sensor events (sensor_id, temperature, ts) from a file stream.
-  Uses a 10-minute watermark to accept events that arrive up to 10 minutes late.
-  Aggregates avg temperature per sensor per 5-minute tumbling window.
-  Uses outputMode("update") so every correction to a closed window is emitted.
-  Uses foreachBatch to write to TWO Snowflake tables:
-    - SENSOR_AGGREGATES        : latest result per window per sensor (upserted)
-    - SENSOR_CORRECTIONS_HISTORY: every version of every window (append-only)
-
-NOTE ON KAFKA:
-  In production the source would be:
-    spark.readStream.format("kafka")
-      .option("kafka.bootstrap.servers", "localhost:9092")
-      .option("subscribe", "sensor-readings")
-      .load()
-  followed by from_json() to parse the value bytes.
-  spark-sql-kafka 4.0.0 is incompatible with PySpark 4.1.1 (SerializedOffset API
-  change), so we use file source. All Structured Streaming semantics are identical.
-
-HOW LATE DATA IS HANDLED:
-  1. withWatermark("ts", "10 minutes")
-       Spark tracks the latest event timestamp it has seen.
-       It accepts events up to 10 minutes behind that latest timestamp.
-       Events older than (max_seen_ts - 10 min) are silently dropped.
-  2. outputMode("update")
-       A window is emitted every time it changes — including when a late event
-       arrives and updates a window that was already emitted.
-       The upsert logic in foreachBatch detects this and writes a correction row.
-
-Run this FIRST, then in another terminal:
-    python3 phase4_nifi_kafka_spark/spark/q19_sensor_producer.py
-"""
-
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import avg, col, count, window
 from pyspark.sql.types import StructType, StringType, DoubleType, TimestampType

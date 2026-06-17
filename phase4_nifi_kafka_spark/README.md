@@ -54,6 +54,65 @@ Both settings live on a NiFi **connection** (the arrow between two processors). 
 
 ---
 
+### Q5 — NiFi Kafka Ingest with MergeContent
+
+**Goal:** Consume a Kafka topic in NiFi, batch every 1,000 records (or 10 seconds, whichever comes first) into a single JSON array, and write to HDFS.
+
+**Flow:**
+```
+ConsumeKafka → MergeContent → PutHDFS
+```
+
+**Processor settings:**
+
+| Processor | Key Property | Value |
+|-----------|-------------|-------|
+| ConsumeKafka | Bootstrap Servers | `localhost:9092` |
+| ConsumeKafka | Topic Name | `nifi-transactions` |
+| ConsumeKafka | Group ID | `nifi-consumer` |
+| ConsumeKafka | Offset Reset | `earliest` |
+| MergeContent | Merge Strategy | Bin-Packing Algorithm |
+| MergeContent | Minimum Number of Entries | `1000` |
+| MergeContent | Maximum Number of Entries | `1000` |
+| MergeContent | Maximum Bin Age | `10 sec` |
+| MergeContent | Header | `[` |
+| MergeContent | Demarcator | `,` |
+| MergeContent | Footer | `]` |
+| PutHDFS | Directory | `/data/transactions` |
+
+**How MergeContent batching works:**
+
+MergeContent holds FlowFiles in a bin and releases the bin when EITHER condition is met first:
+- **1,000 records collected** — full batch, write immediately
+- **10 seconds elapsed** — partial batch, write whatever arrived (prevents data being stuck if Kafka traffic is low)
+
+This is called a **time-or-count trigger** — it guarantees both throughput and latency bounds.
+
+**Failure handling strategies:**
+
+1. **ConsumeKafka failure**
+   - Kafka offsets are only committed after NiFi acknowledges processing — if NiFi crashes, messages are re-consumed from the last committed offset. No data loss.
+   - Route `parse.failure` to a dead-letter folder for inspection.
+
+2. **MergeContent failure**
+   - Route `failure` relationship to a PutFile in an error folder — partial batches are saved, not dropped.
+   - Use LogMessage processor to log the failure with FlowFile attributes for debugging.
+
+3. **PutHDFS failure**
+   - HDFS is unavailable → route `failure` to a local staging folder. A separate flow retries writing once HDFS recovers.
+   - Use RetryFlowFile processor for automatic retries with exponential back-off.
+
+4. **Back pressure**
+   - Set Object Threshold on the ConsumeKafka → MergeContent connection to pause consumption if MergeContent falls behind. Kafka retains the messages — they are not lost, just delayed.
+
+5. **Provenance**
+   - Every FlowFile has a full audit trail in NiFi Data Provenance — you can trace exactly which Kafka offset produced which file.
+
+**Local implementation note:**
+In this project, PutHDFS is replaced with PutFile writing to `kafka/output/` since HDFS is not running locally. The flow logic is identical — only the destination processor changes.
+
+---
+
 ### Q6 — Kafka Broker, Topic, Partition, and Consumer Group
 
 **Broker**
@@ -194,87 +253,197 @@ Smaller watermark = less memory = results faster = more data dropped.
 
 ---
 
-### Q5 — NiFi Kafka Ingest with MergeContent
+### Q19 — Late-Data Handling: IoT → Kafka → Spark → Snowflake → Power BI
 
-**Goal:** Consume a Kafka topic in NiFi, batch every 1,000 records (or 10 seconds, whichever comes first) into a single JSON array, and write to HDFS.
-
-**Flow:**
-```
-ConsumeKafka → MergeContent → PutHDFS
-```
-
-**Processor settings:**
-
-| Processor | Key Property | Value |
-|-----------|-------------|-------|
-| ConsumeKafka | Bootstrap Servers | `localhost:9092` |
-| ConsumeKafka | Topic Name | `nifi-transactions` |
-| ConsumeKafka | Group ID | `nifi-consumer` |
-| ConsumeKafka | Offset Reset | `earliest` |
-| MergeContent | Merge Strategy | Bin-Packing Algorithm |
-| MergeContent | Minimum Number of Entries | `1000` |
-| MergeContent | Maximum Number of Entries | `1000` |
-| MergeContent | Maximum Bin Age | `10 sec` |
-| MergeContent | Header | `[` |
-| MergeContent | Demarcator | `,` |
-| MergeContent | Footer | `]` |
-| PutHDFS | Directory | `/data/transactions` |
-
-**How MergeContent batching works:**
-
-MergeContent holds FlowFiles in a bin and releases the bin when EITHER condition is met first:
-- **1,000 records collected** — full batch, write immediately
-- **10 seconds elapsed** — partial batch, write whatever arrived (prevents data being stuck if Kafka traffic is low)
-
-This is called a **time-or-count trigger** — it guarantees both throughput and latency bounds.
-
-**Failure handling strategies:**
-
-1. **ConsumeKafka failure**
-   - Kafka offsets are only committed after NiFi acknowledges processing — if NiFi crashes, messages are re-consumed from the last committed offset. No data loss.
-   - Route `parse.failure` to a dead-letter folder for inspection.
-
-2. **MergeContent failure**
-   - Route `failure` relationship to a PutFile in an error folder — partial batches are saved, not dropped.
-   - Use LogMessage processor to log the failure with FlowFile attributes for debugging.
-
-3. **PutHDFS failure**
-   - HDFS is unavailable → route `failure` to a local staging folder. A separate flow retries writing once HDFS recovers.
-   - Use RetryFlowFile processor for automatic retries with exponential back-off.
-
-4. **Back pressure**
-   - Set Object Threshold on the ConsumeKafka → MergeContent connection to pause consumption if MergeContent falls behind. Kafka retains the messages — they are not lost, just delayed.
-
-5. **Provenance**
-   - Every FlowFile has a full audit trail in NiFi Data Provenance — you can trace exactly which Kafka offset produced which file.
-
-**Local implementation note:**
-In this project, PutHDFS is replaced with PutFile writing to `kafka/output/` since HDFS is not running locally. The flow logic is identical — only the destination processor changes.
+**The problem:**
+IoT sensors send readings continuously, but network delays mean events can arrive up to 10 minutes after their real timestamp. If Spark already aggregated and closed a 5-minute window, where does the late reading go? And if it changes the result, how does Power BI show both the corrected number AND the fact that a correction happened?
 
 ---
 
-### Q18 — Real-Time Retail Analytics Platform Architecture
+**Full architecture:**
 
-**Scenario:** A retail company with point-of-sale systems needs real-time analytics.
-
-**Recommended Stack:**
-
-| Stage | Tool | Justification |
-|-------|------|---------------|
-| Ingestion | Apache NiFi | Reads POS CSV/JSON files from local folders, transforms and routes them without coding. Visual flow builder makes it easy to adjust pipelines. |
-| Streaming | Apache Kafka | Acts as the message bus between NiFi and Spark. Decouples producers from consumers — POS systems write at their own pace, Spark reads at its own pace. Durable, scalable, fault-tolerant. |
-| Processing | Apache Spark Structured Streaming | Consumes from Kafka, aggregates sales by product/store in real-time windows. Handles late data with watermarking. Writes results to Snowflake. |
-| Storage | Snowflake | Cloud data warehouse — stores both raw events and aggregated results. Scales automatically, no infrastructure to manage. Connects directly to Power BI. |
-| Visualization | Power BI | Connects to Snowflake via DirectQuery for near-real-time dashboards. Business users can build their own reports without SQL. |
-
-**Data flow:**
 ```
-POS Systems → NiFi (ingest & route) → Kafka (buffer & distribute)
-    → Spark Structured Streaming (aggregate) → Snowflake (store)
-    → Power BI (visualize)
+IoT Sensors
+    │  (MQTT / HTTP push)
+    ▼
+Kafka topic: "sensor-readings"
+    │  key=sensor_id, value=JSON {sensor_id, temperature, ts}
+    ▼
+Spark Structured Streaming
+    │  withWatermark("ts", "10 minutes")
+    │  groupBy(window("ts", "5 minutes"), sensor_id)
+    │  agg(avg(temperature), count())
+    │  outputMode("update")
+    │  writeStream.foreachBatch(upsert_to_snowflake)
+    ▼
+Snowflake
+    ├── SENSOR_AGGREGATES       ← latest result per window per sensor
+    └── SENSOR_CORRECTIONS_HISTORY  ← every version of every window
+    ▼
+Power BI (DirectQuery to Snowflake)
+    ├── Live tile  → SENSOR_AGGREGATES
+    └── History chart → SENSOR_CORRECTIONS_HISTORY
 ```
 
-**Why not alternatives:**
-- Flink over Spark? Spark is easier to maintain, better Snowflake integration, larger community
-- S3 over Snowflake? Snowflake has built-in SQL + BI connectors, no need for separate query engine
-- Logstash over NiFi? NiFi handles binary files, routing logic, and back pressure better for POS data
+---
+
+**Step 1 — Kafka layer**
+
+Each IoT event is published to the `sensor-readings` topic with `sensor_id` as the message key.
+Using the sensor ID as a key ensures all readings from the same sensor land on the same partition — important for ordered processing and efficient state management.
+
+---
+
+**Step 2 — Spark watermark and output mode**
+
+```python
+aggregates = (
+    stream_df
+    .withWatermark("ts", "10 minutes")          # accept late events up to 10 min
+    .groupBy(
+        window(col("ts"), "5 minutes"),          # 5-min tumbling windows
+        col("sensor_id")
+    )
+    .agg(avg("temperature").alias("avg_temp"),
+         count("*").alias("reading_count"))
+)
+
+query = aggregates.writeStream \
+    .outputMode("update") \                      # emit a window every time it changes
+    .foreachBatch(upsert_to_snowflake) \
+    .trigger(processingTime="30 seconds") \
+    .option("checkpointLocation", "output/q19_checkpoint") \
+    .start()
+```
+
+**Why `update` mode (not `append`)?**
+
+- `append` mode: a window is emitted only ONCE, after the watermark passes its end time. This means results are delayed by up to 10 minutes. No corrections are ever needed — but you wait longer.
+- `update` mode: a window is emitted every time it changes — including when late data arrives and updates a closed window. Results appear faster, but the same window can be emitted multiple times.
+
+For this question the teacher explicitly asks for a corrections history — so we use `update` mode and handle the multiple emissions in Snowflake.
+
+---
+
+**Step 3 — Snowflake schema**
+
+Two tables work together:
+
+```sql
+-- Latest aggregate per window (what Power BI shows as "current")
+CREATE TABLE SENSOR_AGGREGATES (
+    window_start  TIMESTAMP,
+    window_end    TIMESTAMP,
+    sensor_id     VARCHAR,
+    avg_temp      FLOAT,
+    reading_count INTEGER,
+    last_updated  TIMESTAMP,
+    version       INTEGER,   -- increments each time late data changes this window
+    PRIMARY KEY (window_start, sensor_id)
+);
+
+-- Full history of every version of every window
+CREATE TABLE SENSOR_CORRECTIONS_HISTORY (
+    window_start    TIMESTAMP,
+    window_end      TIMESTAMP,
+    sensor_id       VARCHAR,
+    avg_temp        FLOAT,
+    reading_count   INTEGER,
+    recorded_at     TIMESTAMP,  -- when this version was written
+    version         INTEGER,    -- 1 = original, 2+ = corrections
+    is_correction   BOOLEAN     -- FALSE for first write, TRUE for late-data updates
+);
+```
+
+---
+
+**Step 4 — The `foreachBatch` upsert function**
+
+This is where late data is handled correctly:
+
+```python
+def upsert_to_snowflake(batch_df, batch_id):
+    pdf = batch_df.toPandas()
+    conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
+    cur  = conn.cursor()
+    now  = datetime.utcnow()
+
+    for _, row in pdf.iterrows():
+        w_start    = row["window"]["start"]
+        w_end      = row["window"]["end"]
+        sensor_id  = row["sensor_id"]
+        avg_temp   = float(row["avg_temp"])
+        count      = int(row["reading_count"])
+
+        # check if this window already exists (i.e., this is a correction)
+        cur.execute("""
+            SELECT version FROM SENSOR_AGGREGATES
+            WHERE window_start = %s AND sensor_id = %s
+        """, (w_start, sensor_id))
+        existing = cur.fetchone()
+
+        if existing:
+            new_version  = existing[0] + 1
+            is_correction = True
+        else:
+            new_version  = 1
+            is_correction = False
+
+        # upsert into SENSOR_AGGREGATES (latest values only)
+        cur.execute("""
+            MERGE INTO SENSOR_AGGREGATES AS t
+            USING (SELECT %s ws, %s we, %s sid, %s at, %s rc, %s lu, %s v) AS s
+              ON (t.window_start = s.ws AND t.sensor_id = s.sid)
+            WHEN MATCHED THEN
+              UPDATE SET avg_temp=%s, reading_count=%s, last_updated=%s, version=%s
+            WHEN NOT MATCHED THEN
+              INSERT (window_start, window_end, sensor_id, avg_temp, reading_count,
+                      last_updated, version)
+              VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """, (w_start, w_end, sensor_id, avg_temp, count, now, new_version,
+              avg_temp, count, now, new_version,
+              w_start, w_end, sensor_id, avg_temp, count, now, new_version))
+
+        # always append to history — original write AND every correction
+        cur.execute("""
+            INSERT INTO SENSOR_CORRECTIONS_HISTORY
+              (window_start, window_end, sensor_id, avg_temp, reading_count,
+               recorded_at, version, is_correction)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """, (w_start, w_end, sensor_id, avg_temp, count,
+              now, new_version, is_correction))
+
+    conn.close()
+```
+
+---
+
+**Step 5 — Power BI**
+
+Connect Power BI to Snowflake using the Snowflake connector (Get Data → Snowflake). Use **DirectQuery** so the dashboard always reflects the latest data without needing manual refreshes.
+
+Two visuals on the dashboard:
+
+| Visual | Source table | What it shows |
+|--------|-------------|---------------|
+| Line / bar chart | `SENSOR_AGGREGATES` | Current avg temperature per sensor per 5-min window |
+| Table / audit view | `SENSOR_CORRECTIONS_HISTORY WHERE is_correction = TRUE` | Every window that was updated by late data, with old vs new values |
+
+For the corrections view, add a calculated column in Power BI:
+```
+Correction Label = "v" & [version] & " — " & FORMAT([recorded_at], "HH:MM:SS")
+```
+This lets users see exactly when a past window was revised and by how much.
+
+---
+
+**Key implementation decisions — summary**
+
+| Decision | Choice | Reason |
+|----------|--------|--------|
+| Output mode | `update` | We need corrections to be emitted, not just final values |
+| Watermark | 10 minutes | Matches the stated maximum late-arrival delay |
+| Snowflake write pattern | MERGE (upsert) | Idempotent — safe to re-run if Spark restarts |
+| History tracking | Separate `CORRECTIONS_HISTORY` table | Keeps `SENSOR_AGGREGATES` clean (one row per window) while preserving full audit trail |
+| Power BI refresh | DirectQuery | Real-time view — no scheduled refresh needed |
+| Kafka key | `sensor_id` | Keeps all readings for one sensor on one partition → correct ordering |

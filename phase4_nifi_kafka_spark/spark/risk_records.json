@@ -1,0 +1,15 @@
+{"id": 1,  "customer_id": "C001", "amount": 15000, "credit_score": 720, "failed_attempts": 1, "country": "US"}
+{"id": 2,  "customer_id": "C002", "amount": 3200,  "credit_score": 680, "failed_attempts": 0, "country": "DE"}
+{"id": 3,  "customer_id": "C003", "amount": 8500,  "credit_score": 610, "failed_attempts": 2, "country": "UK"}
+{"id": 4,  "customer_id": "C004", "amount": 500,   "credit_score": 470, "failed_attempts": 1, "country": "FR"}
+{"id": 5,  "customer_id": "C005", "amount": 22000, "credit_score": 750, "failed_attempts": 0, "country": "US"}
+{"id": 6,  "customer_id": "C006", "amount": 1200,  "credit_score": 700, "failed_attempts": 5, "country": "DE"}
+{"id": 7,  "customer_id": "C007", "amount": 6700,  "credit_score": 630, "failed_attempts": 1, "country": "UK"}
+{"id": 8,  "customer_id": "C008", "amount": 300,   "credit_score": 800, "failed_attempts": 0, "country": "US"}
+{"id": 9,  "customer_id": "C009", "amount": 11000, "credit_score": 490, "failed_attempts": 2, "country": "FR"}
+{"id": 10, "customer_id": "C010", "amount": 4500,  "credit_score": 640, "failed_attempts": 0, "country": "DE"}
+{"id": 11, "customer_id": "C011", "amount": 950,   "credit_score": 710, "failed_attempts": 0, "country": "UK"}
+{"id": 12, "customer_id": "C012", "amount": 7800,  "credit_score": 580, "failed_attempts": 3, "country": "US"}
+{"id": 13, "customer_id": "C013", "amount": 200,   "credit_score": 750, "failed_attempts": 0, "country": "FR"}
+{"id": 14, "customer_id": "C014", "amount": 18000, "credit_score": 660, "failed_attempts": 0, "country": "DE"}
+{"id": 15, "customer_id": "C015", "amount": 2100,  "credit_score": 455, "failed_attempts": 1, "country": "UK"}

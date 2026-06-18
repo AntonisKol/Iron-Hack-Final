@@ -7,9 +7,6 @@ import snowflake.connector
 import os
 from utils import SNOWFLAKE_CONFIG, EVENT_SCHEMA as schema
 
-# Step 9: engagement scoring per user in 15-minute windows → ANALYTICS.INFLUENCER_RANKING
-# Engagement score = likes×1 + comments×3 + shares×5 + video_views×0.5 + follows×2
-
 BASE_DIR   = os.path.dirname(__file__)
 CHECKPOINT = os.path.join(BASE_DIR, 'checkpoints', 's9_checkpoint')
 

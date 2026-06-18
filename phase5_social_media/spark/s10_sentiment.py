@@ -6,9 +6,6 @@ import snowflake.connector
 import os
 from utils import SNOWFLAKE_CONFIG, EVENT_SCHEMA as schema
 
-# Step 10: classify comment text as POSITIVE / NEUTRAL / NEGATIVE → ANALYTICS.COMMENT_SENTIMENT
-# uses keyword matching — simple but explainable and language-model-free
-
 BASE_DIR   = os.path.dirname(__file__)
 CHECKPOINT = os.path.join(BASE_DIR, 'checkpoints', 's10_checkpoint')
 

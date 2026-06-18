@@ -8,11 +8,6 @@ import json
 import uuid
 import os
 
-# Q16: IoT anomaly detection
-# Reads sensor data from Kafka topic 'sensor-readings'.
-# Detects temperature anomalies: temp > AVG + 3×STDDEV over the last 1 hour per sensor.
-# Writes alerts to Kafka topic 'sensor-alerts' AND Snowflake SENSOR_ANOMALY_ALERTS.
-
 load_dotenv('/Users/mpe/Desktop/Iron Hack/CAPSTONE /Final project/.env')
 
 SNOWFLAKE_CONFIG = {

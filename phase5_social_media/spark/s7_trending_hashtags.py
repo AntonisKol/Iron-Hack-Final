@@ -7,8 +7,6 @@ import snowflake.connector
 import os
 from utils import SNOWFLAKE_CONFIG, EVENT_SCHEMA as schema
 
-# Step 7: hashtag frequency in 1/5/15-minute windows → ANALYTICS.TRENDING_HASHTAGS
-
 BASE_DIR   = os.path.dirname(__file__)
 CHECKPOINT = os.path.join(BASE_DIR, 'checkpoints', 's7_checkpoint')
 

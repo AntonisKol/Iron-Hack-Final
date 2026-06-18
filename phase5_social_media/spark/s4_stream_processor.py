@@ -6,8 +6,6 @@ import json
 import os
 from utils import SNOWFLAKE_CONFIG, EVENT_SCHEMA as schema, nan_to_none
 
-# Steps 4 + 5: consume events, validate, write to Snowflake RAW_EVENTS
-
 VALID_EVENT_TYPES = {
     'POST_CREATED', 'LIKE', 'COMMENT', 'SHARE',
     'FOLLOW', 'VIDEO_VIEW', 'PROFILE_VISIT',

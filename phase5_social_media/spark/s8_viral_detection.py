@@ -5,9 +5,6 @@ import snowflake.connector
 import os
 from utils import SNOWFLAKE_CONFIG, EVENT_SCHEMA as schema
 
-# Step 8: detect posts with >500 LIKE events in a 5-minute window → ANALYTICS.VIRAL_POSTS
-# alert is printed to console; threshold and window size are configurable constants
-
 VIRAL_THRESHOLD = 500  # likes within 5 minutes
 
 BASE_DIR   = os.path.dirname(__file__)

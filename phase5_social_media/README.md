@@ -201,6 +201,24 @@ python3 kafka/validate_consumer.py
 
 ---
 
+## Source Files
+
+| File | What it does |
+| --- | --- |
+| `snowflake/setup.sql` | Creates `SOCIAL_MEDIA_DB` and all schemas/tables (`RAW`, `CURATED`, `ANALYTICS`) — run once before starting any Spark jobs |
+| `simulator/event_simulator.py` | Generates 1,000 events/min across 7 event types, publishes to Kafka topic `social-events` and seeds Snowflake dimension tables (`USER_DIM`, `POST_DIM`) |
+| `kafka/create_topics.py` | Creates the `social-events` topic with 3 partitions — 3 partitions lets Spark assign one task per partition for parallel reads |
+| `kafka/validate_consumer.py` | Reads from `social-events` and prints a running count per event type; run in a separate terminal while the simulator is active to confirm ingestion is working |
+| `spark/utils.py` | Shared module imported by all Spark jobs: `SNOWFLAKE_CONFIG` dict, `EVENT_SCHEMA` StructType, and `nan_to_none` helper (guards against Pandas filling missing floats with `float('nan')` which Snowflake rejects) |
+| `spark/s4_stream_processor.py` | Steps 4 + 5 — consumes from `social-events`, validates event type and required fields, writes every event (valid + invalid) to `RAW.RAW_EVENTS` with an `is_valid` flag |
+| `spark/s6_enrichment.py` | Step 6 — joins validated events with `USER_DIM` and `POST_DIM` loaded from Snowflake at startup, writes enriched rows to `CURATED.CURATED_EVENTS` |
+| `spark/s7_trending_hashtags.py` | Step 7 — explodes the `hashtags` array, counts occurrences across 1-min / 5-min / 15-min tumbling windows, writes all three granularities to `ANALYTICS.TRENDING_HASHTAGS` |
+| `spark/s8_viral_detection.py` | Step 8 — counts LIKE events per post in 5-minute windows; posts crossing 500 likes are flagged viral, printed to console, and written to `ANALYTICS.VIRAL_POSTS`; threshold is a configurable constant |
+| `spark/s9_influencer_ranking.py` | Step 9 — computes a weighted engagement score per user in 15-minute windows (likes×1 + comments×3 + shares×5 + video_views×0.5 + follows×2), ranks users within each batch, writes to `ANALYTICS.INFLUENCER_RANKING` |
+| `spark/s10_sentiment.py` | Step 10 — filters COMMENT events, classifies `comment_text` as POSITIVE / NEUTRAL / NEGATIVE using keyword lists (negative checked first to avoid false positives), writes to `ANALYTICS.COMMENT_SENTIMENT` |
+
+---
+
 ## Topic Design
 
 | Topic           | Partitions | Producer             | Consumer       | Purpose                                                               |

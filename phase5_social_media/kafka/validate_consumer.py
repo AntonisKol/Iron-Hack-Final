@@ -1,9 +1,6 @@
 from kafka import KafkaConsumer
 import json
 
-# reads from 'social-events' and prints a summary to validate ingestion is working
-# run this in a separate terminal while the simulator is running
-
 TOPIC  = 'social-events'
 BROKER = 'localhost:9092'
 

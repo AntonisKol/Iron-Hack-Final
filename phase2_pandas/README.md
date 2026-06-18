@@ -1,5 +1,5 @@
 # Phase 2 — Pandas & Exploratory Data Analysis
-**Tool:** Python 3 · Pandas · NumPy | **Dataset:** Telecom Customer Churn (7,043 rows) | **Effort:** ~4 hours
+**Tool:** Python 3 · Pandas · NumPy | **Dataset:** Telecom Customer Churn (7,043 rows)
 
 ## Dataset
 `data/telecom_churn.csv` — telecom customers with demographics, services subscribed, charges, and churn outcome.

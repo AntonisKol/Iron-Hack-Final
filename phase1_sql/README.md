@@ -1,5 +1,5 @@
 # Phase 1 — SQL & Fraud Analytics
-**Tool:** Snowflake SQL | **Dataset:** Bank Fraud | **Effort:** ~6 hours
+**Tool:** Snowflake SQL | **Dataset:** Bank Fraud 
 
 ## Dataset
 `data/bank_fraud.csv` — bank transaction records with fraud labels.

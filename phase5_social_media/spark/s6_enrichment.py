@@ -6,8 +6,6 @@ import json
 import os
 from utils import SNOWFLAKE_CONFIG, EVENT_SCHEMA as schema, nan_to_none
 
-# Step 6: join streaming events with USER_DIM and POST_DIM → write CURATED_EVENTS
-
 BASE_DIR   = os.path.dirname(__file__)
 CHECKPOINT = os.path.join(BASE_DIR, 'checkpoints', 's6_checkpoint')
 

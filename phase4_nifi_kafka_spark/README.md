@@ -1,7 +1,21 @@
 # Phase 4 — NiFi, Kafka & Spark
 **Real-Time Streaming & Data Processing**
 
-Practical code files are in the subfolders: `nifi/`, `kafka/`, `spark/`
+---
+
+## Coding Tasks
+
+| Q | File | What it does |
+| --- | ------ | ------------- |
+| Q2 | `nifi/mock_api.py` | Flask API serving JSON sales records — used as the HTTP source in a NiFi InvokeHTTP flow |
+| Q5 | `kafka/q5_kafka_producer.py` | Produces 50 JSON transaction events to topic `nifi-transactions` (1 msg/s) |
+| Q8 | `kafka/q8_csv_producer.py` | Reads `transactions.csv`, streams each row as a JSON message to topic `transactions` |
+| Q9 | `kafka/q9_streams_app.py` | Kafka Streams app: consumes `transactions`, filters high-value (>500) rows, produces to `high-value-transactions`; `q9_test_producer.py` seeds test data |
+| Q11 | `spark/q11_top_customers.py` | Batch Spark job: reads `transactions.csv`, groups by `customer_id`, sums `amount`, returns top 10 by total spend |
+| Q12 | `spark/q12_risk_classifier.py` | Batch Spark job: applies rule-based risk classification (Low / Medium / High) using `amount`, `country`, `device_type`; writes results to `risk_records.json` |
+| Q14 | `spark/q14_page_views_stream.py` | Structured Streaming: reads page-view events from Kafka topic `page-views`, applies a 10-minute watermark and 5-minute tumbling window, counts views per page per window; `q14_pageview_producer.py` seeds the topic |
+| Q16 | `spark/q16_anomaly_detection.py` | Structured Streaming: reads IoT sensor readings from Kafka topic `sensor-readings`, computes rolling 1-hour AVG + STDDEV per sensor, flags temperature > avg + 3σ as anomalies, writes alerts to Kafka topic `sensor-alerts` and Snowflake |
+| Q19 | `spark/q19_late_data_stream.py` | Structured Streaming: reads from Kafka topic `sensor-readings` using `outputMode('update')` + `foreachBatch` MERGE-upsert into Snowflake, demonstrating how re-emitted windows are handled when late data arrives; `q19_sensor_producer.py` seeds the topic |
 
 ---
 

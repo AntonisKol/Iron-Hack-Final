@@ -9,8 +9,6 @@ from utils import SNOWFLAKE_CONFIG, EVENT_SCHEMA as schema
 BASE_DIR   = os.path.dirname(__file__)
 CHECKPOINT = os.path.join(BASE_DIR, 'checkpoints', 's10_checkpoint')
 
-# ── KEYWORD LISTS ─────────────────────────────────────────────────────────────
-# match order: NEGATIVE checked first to avoid false positives from "not great"
 POSITIVE_KEYWORDS = [
     'love', 'amazing', 'incredible', 'best', 'stunning', 'fantastic',
     'wonderful', 'inspiring', 'great', 'excellent', 'awesome', 'beautiful',
@@ -38,7 +36,6 @@ def classify_sentiment(text):
 
 sentiment_udf = udf(classify_sentiment, StringType())
 
-# ── SPARK SESSION ─────────────────────────────────────────────────────────────
 spark = SparkSession.builder \
     .appName('S10 - Comment Sentiment Analysis') \
     .master('local[*]') \
@@ -50,7 +47,6 @@ spark.sparkContext.setLogLevel('WARN')
 _log4j = spark.sparkContext._jvm.org.apache.log4j
 _log4j.Logger.getLogger('org.apache.spark.sql.kafka010.KafkaDataConsumer').setLevel(_log4j.Level.ERROR)
 
-# only COMMENT events have comment_text
 raw_stream = spark.readStream \
     .format('kafka') \
     .option('kafka.bootstrap.servers', 'localhost:9092') \
@@ -98,7 +94,6 @@ def write_sentiment(batch_df, batch_id):
     )
     conn.close()
 
-    # quick distribution summary
     dist = pdf['sentiment'].value_counts().to_dict()
     print(f'  Batch {batch_id}: {len(rows)} comments → COMMENT_SENTIMENT  '
           f'[POS:{dist.get("POSITIVE",0)} NEU:{dist.get("NEUTRAL",0)} NEG:{dist.get("NEGATIVE",0)}]')

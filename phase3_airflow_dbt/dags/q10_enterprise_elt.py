@@ -4,6 +4,8 @@ from airflow.providers.standard.operators.bash import BashOperator
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import snowflake.connector
+import smtplib
+from email.mime.text import MIMEText
 import os
 from dag_utils import send_failure_email
 
@@ -35,10 +37,6 @@ with DAG(
     catchup=False,
 ) as dag:
 
-    # ── STEP 1: INGEST CHECK ──────────────────────────────────────────────────
-    # verify both datasets are loaded and accessible in Snowflake
-    # bank fraud (1M rows) + telecom churn (7,043 rows)
-    # if either is missing the pipeline stops immediately
     def ingest_check():
         conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
         cursor = conn.cursor()
@@ -63,28 +61,18 @@ with DAG(
         on_failure_callback=send_failure_email,
     )
 
-    # ── STEP 2 & 3: BUILD DBT STAGING AND MARTS ───────────────────────────────
-    # runs the full dbt project: staging → intermediate → marts
-    # rebuilds all 6 models in Snowflake in the correct order
     task_dbt_run = BashOperator(
         task_id='dbt_run',
         bash_command=f'cd "{DBT_PROJECT_DIR}" && /opt/homebrew/bin/dbt run --project-dir .',
         on_failure_callback=send_failure_email,
     )
 
-    # ── STEP 4: RUN DBT TESTS ─────────────────────────────────────────────────
-    # validates data quality rules defined in schema.yml
-    # checks: unique customer_id, no nulls in key columns
-    # pipeline fails here if data quality is broken — nothing bad reaches the report
     task_dbt_test = BashOperator(
         task_id='dbt_test',
         bash_command=f'cd "{DBT_PROJECT_DIR}" && /opt/homebrew/bin/dbt test --project-dir .',
         on_failure_callback=send_failure_email,
     )
 
-    # ── STEP 5: GENERATE FRAUD BUSINESS REPORT ────────────────────────────────
-    # pulls from FRAUD_DAILY_SUMMARY (built by Q9) and FRAUD_SUMMARY (built by Q5)
-    # produces the fraud side of the daily business report
     def fraud_business_report(**context):
         conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
         cursor = conn.cursor()
@@ -111,7 +99,6 @@ with DAG(
         for row in top_countries:
             print(f'  {row[0]}: {row[1]} cases')
 
-        # push key metrics to XCom for the email task
         context['ti'].xcom_push(key='total_fraud', value=total_fraud)
         context['ti'].xcom_push(key='avg_fraud_amount', value=float(avg_fraud_amount))
         conn.close()
@@ -122,9 +109,6 @@ with DAG(
         on_failure_callback=send_failure_email,
     )
 
-    # ── STEP 5: GENERATE CHURN BUSINESS REPORT ────────────────────────────────
-    # pulls from MART_CHURN_KPIS built by dbt (Q7)
-    # produces the churn side of the daily business report
     def churn_business_report(**context):
         conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
         cursor = conn.cursor()
@@ -138,7 +122,6 @@ with DAG(
         for row in rows:
             print(f'{row[0]:<20} {row[1]:>10} {row[2]:>8} ${row[5]:>14}')
 
-        # total annual revenue lost across all contracts
         cursor.execute('SELECT SUM(annual_revenue_lost) FROM CHURN_RAW.MART_CHURN_KPIS')
         total_loss = cursor.fetchone()[0]
         print(f'Total annual revenue at risk: ${total_loss}')
@@ -152,9 +135,6 @@ with DAG(
         on_failure_callback=send_failure_email,
     )
 
-    # ── STEP 6 & 7: SEND COMBINED BUSINESS REPORT EMAIL ──────────────────────
-    # pulls metrics from XCom and sends a summary email
-    # this is what the executive team would receive every morning
     def send_business_report(**context):
         total_fraud = context['ti'].xcom_pull(task_ids='fraud_business_report', key='total_fraud')
         avg_fraud = context['ti'].xcom_pull(task_ids='fraud_business_report', key='avg_fraud_amount')
@@ -192,6 +172,4 @@ Pipeline Status: All dbt models rebuilt and tested successfully.
         on_failure_callback=send_failure_email,
     )
 
-    # full enterprise ELT flow:
-    # verify data → build dbt models → test quality → fraud report → churn report → email
     task_ingest_check >> task_dbt_run >> task_dbt_test >> [task_fraud_report, task_churn_report] >> task_send_report

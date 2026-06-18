@@ -8,7 +8,7 @@ consumer = KafkaConsumer(
     TOPIC,
     bootstrap_servers=BROKER,
     group_id='validator',
-    auto_offset_reset='earliest',      # read from the beginning on first run
+    auto_offset_reset='earliest',
     value_deserializer=lambda v: json.loads(v.decode('utf-8')),
 )
 

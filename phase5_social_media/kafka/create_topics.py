@@ -3,9 +3,6 @@ from kafka.errors import TopicAlreadyExistsError
 
 BROKER = 'localhost:9092'
 
-# topic definitions: (name, partitions, replication_factor)
-# partitions = parallelism: more partitions → more Spark tasks can read in parallel
-# replication_factor = 1 for local dev (no multi-broker cluster)
 TOPICS = [
     NewTopic(name='social-events', num_partitions=3, replication_factor=1),
 ]

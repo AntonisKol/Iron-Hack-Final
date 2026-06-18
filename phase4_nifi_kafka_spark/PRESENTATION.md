@@ -5,7 +5,7 @@
 
 ## What Was Asked (Technical Brief)
 
-This phase combines **theoretical understanding** (written answers to architecture questions) with **practical coding** (working implementations of Kafka producers, a stateful stream processing app, and Spark batch and streaming jobs). The questions cover three technologies: Apache NiFi (data routing and transformation flows), Apache Kafka (distributed message streaming), and Apache Spark (large-scale data processing). Practical files sit in `nifi/`, `kafka/`, and `spark/` subfolders.
+This phase combines theoretical understanding (written answers to architecture questions) with practical coding (working implementations of Kafka producers, a stateful stream processing app, and Spark batch and streaming jobs). The questions cover three technologies: Apache NiFi (data routing), Apache Kafka (distributed message streaming), and Apache Spark (large-scale data processing). Practical files live in `nifi/`, `kafka/`, and `spark/` subfolders.
 
 ---
 
@@ -15,161 +15,104 @@ This phase combines **theoretical understanding** (written answers to architectu
 
 ### `nifi/mock_api.py` — HTTP Source for NiFi (Q2)
 
-**Purpose:** Simulate an external REST API that NiFi's `InvokeHTTP` processor can call to pull data.
-
-- **`RECORDS` list:** Five hardcoded transaction dicts — each with `id`, `name`, `amount`, and `status`.
-- **`MockAPIHandler.do_GET()` method:** Responds to every GET request with HTTP 200, `Content-Type: application/json`, and the full records list as a JSON body.
-- **`HTTPServer` startup block:** Binds to `localhost:8888`, enters `serve_forever()`. NiFi is configured to hit `http://localhost:8888/` via its `InvokeHTTP` processor, which passes each response FlowFile downstream for processing.
-
-The NiFi flow this supports: `InvokeHTTP → EvaluateJsonPath → RouteOnAttribute → PutFile` — fetches the API response, extracts fields, routes ERROR status records to an alert folder and SUCCESS records to a processed folder.
+Simulates an external REST API that NiFi's `InvokeHTTP` processor calls to pull data. Five hardcoded transaction dicts are stored in a `RECORDS` list. `MockAPIHandler.do_GET()` responds to every GET request with HTTP 200 and the full records list as a JSON body. The server binds to `localhost:8888` and runs forever. NiFi is configured to hit this endpoint via its `InvokeHTTP` processor, passing each response downstream as a FlowFile through the flow: `InvokeHTTP → EvaluateJsonPath → RouteOnAttribute → PutFile`. Records with `status=ERROR` are routed to an alert folder; all others go to a processed folder.
 
 ---
 
 ### `kafka/q5_kafka_producer.py` — Basic Kafka Producer (Q5)
 
-**Purpose:** Send 2,500 synthetic transaction events to Kafka topic `nifi-transactions`. NiFi's `ConsumeKafka` processor on the other end reads these and demonstrates the MergeContent batching flow (Q5 theory question).
-
-- **`KafkaProducer` init block:** Connects to `localhost:9092`. `value_serializer` converts each Python dict to UTF-8 JSON bytes before sending — Kafka only stores raw bytes.
-- **Event generation loop:** Creates `{'transaction_id': ..., 'customer_id': ..., 'amount': ..., 'country': ..., 'merchant': ...}` with `random` values. Calls `producer.send(TOPIC, value=event)`. Runs 2,500 times to produce two full MergeContent batches (each triggers at 1,000 records) plus one partial batch (triggers at the 10-second timeout).
-- **`producer.flush()` at end:** Blocks until all in-flight messages are acknowledged by the Kafka broker. Without this, the script might exit before all messages are delivered.
+Sends 2,500 synthetic transaction events to Kafka topic `nifi-transactions`. `KafkaProducer` connects to `localhost:9092` with a `value_serializer` that converts each Python dict to UTF-8 JSON bytes — Kafka only stores raw bytes, so serialisation happens on the producer side. The event generation loop creates a random record per iteration and calls `producer.send(TOPIC, value=record)`, which is non-blocking: it queues the message in an internal buffer that the background I/O thread batches and sends to the broker. The loop prints progress every 500 records. `producer.flush()` at the end blocks until all in-flight messages are acknowledged by the broker — without it, the script might exit before all messages are delivered.
 
 ---
 
-### `kafka/q8_csv_producer.py` — CSV-to-Kafka Producer (Q8)
+### `kafka/q8_csv_producer.py` — CSV-to-Kafka Producer with Guaranteed Delivery (Q8)
 
-**Purpose:** Read a CSV file row by row and publish each row as a Kafka message — simulating a legacy system feeding a real-time pipeline.
-
-- **Delivery callbacks block (`on_send_success`, `on_send_error`):** Functions passed to the Kafka send Future. `on_send_success` logs the topic, partition, and offset of the delivered message. `on_send_error` logs the exception. These demonstrate **guaranteed delivery** — the producer knows whether each message arrived.
-- **CSV reading block:** Opens `transactions.csv` with `csv.DictReader` — each row becomes a Python dict keyed by column headers. `float()` cast on `amount` ensures the numeric value serialises cleanly as JSON.
-- **`producer.send(TOPIC, value=row).add_callbacks(success=..., error=...)` block:** Non-blocking send. The Future callback fires asynchronously when the broker responds.
-- **`producer.flush()` at end:** Waits for all pending callbacks before the script exits.
+Reads a CSV file row by row and publishes each row as a Kafka message, simulating a legacy system feeding a real-time pipeline. `KafkaProducer` is configured with `acks='all'` (strongest delivery guarantee — all in-sync replicas must confirm), `retries=5`, and `retry_backoff_ms=200`. The key concept here is delivery callbacks: `on_success` and `on_error` are registered on the Future returned by each `send()` call and run in a background thread when the broker responds. `on_success` logs the partition number and offset — the position within the partition — confirming exactly where the message landed. `on_error` logs the exception if all retries are exhausted. `csv.DictReader` turns each CSV row into a Python dict keyed by column headers. `producer.flush()` waits for all pending callbacks before the script exits.
 
 ---
 
-### `kafka/q9_streams_app.py` — Stateful Stream Processing (Q9)
+### `kafka/q9_streams_app.py` — Stateful Stream Processing / KTable Pattern (Q9)
 
-**Purpose:** Simulate Kafka Streams' KTable pattern in Python. Consumes `transactions`, maintains a running total per customer in memory, and produces an alert to `high-value-customers` when any customer's total crosses $10,000.
-
-- **`running_totals` dict block:** `{customer_id: running_total}` — the in-memory state store. In real Kafka Streams this is backed by RocksDB on disk for fault tolerance.
-- **Consumer loop:** `KafkaConsumer` reads from `transactions` topic. For each message: parses JSON, looks up the customer's existing total in the dict, adds the new amount, updates the dict. This is the **stateful** part — the decision depends on all previous messages, not just the current one.
-- **Threshold check block:** `if running_totals[customer_id] >= FILTER_THRESHOLD (10,000)`: sends a summary message to `high-value-customers` topic with customer ID, total amount, and number of transactions. Does this on every update once the threshold is crossed — so the downstream consumer gets the latest running total each time.
+Simulates Kafka Streams' KTable pattern in Python. Consumes from topic `transactions`, maintains a running total per customer in an in-memory dict (`running_totals = {customer_id: total}`), and produces an update to `high-value-customers` whenever a customer's accumulated total exceeds $10,000. The dict is the state store — in real Kafka Streams this is backed by RocksDB on disk for fault tolerance. For each incoming message: the customer's existing total is retrieved from the dict, the new amount is added, and the dict is updated. This is stateful processing — the output depends on all previous messages, not just the current one. When the threshold is crossed, a summary message is sent to the output topic with the customer ID, running total, and latest transaction details. `acks='all'` on the output producer ensures the alert is not lost.
 
 ---
 
 ### `kafka/q9_test_producer.py` — Test Data Seeder
 
-**Purpose:** Feed `q9_streams_app.py` with a realistic mix of transactions to exercise the threshold logic.
-
-- **`transactions` list:** Hardcoded mix — some customers have multiple entries that sum above $10,000 (should trigger the alert), others have totals below the threshold (should be silently accumulated). Used to verify the streams app behaves correctly.
-- **`producer.send` loop + `acks='all'` config:** `acks='all'` tells Kafka to wait for all in-sync replicas to acknowledge the message — strongest delivery guarantee. Used here so test data is definitely in Kafka before the streams app starts consuming.
+Feeds `q9_streams_app.py` with a controlled mix of transactions to verify the threshold logic. The `transactions` list is hardcoded with a mix of customers — some have multiple entries that sum above $10,000 (should trigger the alert to `high-value-customers`), others have totals below the threshold (should be silently accumulated). `acks='all'` ensures all test data is durably written to Kafka before the streams app starts consuming.
 
 ---
 
 ### `spark/q11_top_customers.py` — Batch Spark: Top Customers Per City (Q11)
 
-**Purpose:** Demonstrate Spark's core batch processing concepts: SparkSession, DataFrame creation, transformations, window functions, and writing Parquet output.
-
-- **SparkSession block:** `SparkSession.builder.appName(...).master('local[*]')` — `local[*]` means use all available CPU cores. In production this would be `spark://master:7077` pointing to a cluster.
-- **Sample data block:** Two Python lists of tuples (`orders_data`, `customers_data`). `spark.createDataFrame(data, schema=[...])` converts them into Spark DataFrames with explicit column names.
-- **STEP 1 — JOIN transformation:** `orders_df.join(customers_df, on='customer_id', how='inner')` — standard inner join. This is a **transformation** — Spark builds the plan but nothing executes yet (lazy evaluation).
-- **STEP 2 — Aggregation transformation:** `groupBy('customer_id', 'name', 'city').agg(_sum('amount').alias('total_spend'))` — sum all orders per customer.
-- **STEP 3 — Window function transformation:** `Window.partitionBy('city').orderBy(desc('total_spend'))` defines the window. `rank().over(window)` assigns rank 1 to the highest spender in each city, restarting for each new city. Still no execution.
-- **STEP 4 — Filter transformation:** `filter(col('rank') <= 5)` — keep only the top 5 per city.
-- **STEP 5 — Parquet write (ACTION):** `top5_df.write.mode('overwrite').partitionBy('city').parquet(output_path)` — this is the first **action**, triggering execution of all four transformations in one optimised pass. `partitionBy('city')` creates separate subfolders per city, so a query for London only reads the London folder.
+Demonstrates Spark's core batch processing concepts. `SparkSession.builder.appName(...).master('local[*]')` initialises a local session using all available CPU cores — in production this would point to a cluster. Two Python lists of tuples are converted to Spark DataFrames with `spark.createDataFrame(data, schema=[...])`. The processing pipeline is built as a series of transformations (lazy — nothing runs yet): an inner join on `customer_id`, a `groupBy` aggregation summing order amounts per customer, a window function `Window.partitionBy('city').orderBy(desc('total_spend'))` that assigns `rank()` within each city restarting per partition, and a filter keeping only `rank <= 5`. The first action — `top5_df.write.mode('overwrite').partitionBy('city').parquet(output_path)` — triggers execution of all transformations in one optimised pass. `partitionBy('city')` creates one subfolder per city so that a query filtered on London only reads the London folder.
 
 ---
 
 ### `spark/q12_risk_classifier.py` — Batch Spark: UDF Risk Classifier (Q12)
 
-**Purpose:** Show how to apply custom Python logic (a User-Defined Function) to every row in a Spark DataFrame, then write the results to Snowflake.
-
-- **`SNOWFLAKE_CONFIG` block:** Credentials from `.env`, passed to `snowflake.connector.connect()`.
-- **STEP 1 — Read JSON:** `spark.read.json(JSON_PATH)` — reads `risk_records.json` (newline-delimited JSON, one object per line). Spark infers the schema automatically.
-- **STEP 2 — Define UDF:** `classify_risk(amount, credit_score, failed_attempts)` — three-tier rule: HIGH if amount > 10,000 OR credit_score < 500 OR failed_attempts > 3; MEDIUM if amount > 5,000 OR credit_score < 650; LOW otherwise. `udf(classify_risk, StringType())` wraps it so Spark can call it in parallel across all executors.
-- **STEP 3 — Apply UDF:** `df.withColumn('risk_level', classify_udf(col(...), col(...), col(...)))` — adds a new column by calling the UDF on three existing columns per row.
-- **STEP 4 — Split + cache:** `df_classified.cache()` stores the result in memory so the UDF doesn't re-execute for each of the three filter operations that follow.
-- **STEP 5 — Write to Snowflake:** `write_to_snowflake()` calls `.toPandas()` (an ACTION, triggers Spark), then uses `cursor.executemany()` for batch insert into `RISK_HIGH`, `RISK_MEDIUM`, `RISK_LOW` tables.
+Shows how to apply custom Python logic to every row in a Spark DataFrame via a User-Defined Function. `spark.read.json(JSON_PATH)` reads newline-delimited JSON with automatic schema inference. `classify_risk(amount, credit_score, failed_attempts)` implements a three-tier rule: HIGH if amount > 10,000 OR credit_score < 500 OR failed_attempts > 3; MEDIUM if amount > 5,000 OR credit_score < 650; LOW otherwise. `udf(classify_risk, StringType())` wraps the function so Spark can call it in parallel across all executors. `df.withColumn('risk_level', classify_udf(...))` adds the classification column as a transformation. `df_classified.cache()` stores the result in memory so the UDF doesn't re-execute for each of the three downstream filters. `write_to_snowflake()` calls `.toPandas()` (an action, triggering Spark), then uses `cursor.executemany()` to bulk-insert rows into `RISK_HIGH`, `RISK_MEDIUM`, and `RISK_LOW` tables.
 
 ---
 
-### `spark/q14_page_views_stream.py` — Structured Streaming: Page Views (Q14)
+### `spark/q14_page_views_stream.py` — Structured Streaming: Page View Counter (Q14)
 
-**Purpose:** Read a real-time stream of page-view events from Kafka, apply event-time windowing with watermark, and count views per page per 5-minute window.
+Reads a real-time stream of page-view events from Kafka topic `page-views`, applies event-time windowing, and counts views per page per 5-minute window. The SparkSession includes `spark.jars.packages = org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3` so the Kafka connector JAR is downloaded automatically. The schema defines `user_id`, `page`, and `ts` as `StringType` — timestamp is parsed as a string first to avoid `from_json` timezone issues, then cast to timestamp with `.cast('timestamp')`. `withWatermark('ts', '10 minutes')` tells Spark to accept events up to 10 minutes late and drop anything older. `groupBy(window(col('ts'), '5 minutes'), col('page')).count()` groups events into non-overlapping 5-minute buckets per page. `outputMode('update')` re-emits a window row whenever it changes — including when a late event updates an already-computed window.
 
-- **SparkSession block:** Includes `spark.jars.packages = org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3` — the Kafka connector JAR that Spark downloads automatically.
-- **Schema block:** `StructType` with `user_id`, `page`, `timestamp` — all `StringType`. Timestamp is parsed as string first to avoid `from_json` timezone issues, then cast to timestamp.
-- **READ FROM KAFKA block:** `readStream.format('kafka').option('subscribe', 'page-views').load()` — reads incoming Kafka messages. `.select(from_json(col('value').cast('string'), schema).alias('d')).select('d.*')` — decodes the JSON bytes into structured columns.
-- **Watermark + Window block:** `.withWatermark('ts', '10 minutes')` — accept events up to 10 minutes late; drop anything older. `groupBy(window(col('ts'), '5 minutes'), col('page')).count()` — counts views per page in non-overlapping 5-minute buckets.
-- **Write block:** `writeStream.outputMode('update').format('console')` — re-prints every window row when it changes (as new events arrive or late events update a closed window).
-
-**Companion file: `q14_pageview_producer.py`** — sends 30 synthetic page-view events to `page-views` topic, spread randomly across the last 10 minutes to create a natural late-data scenario.
+**Companion: `q14_pageview_producer.py`** sends 30 synthetic events to `page-views`, spread randomly across the last 10 minutes to create a natural late-data demonstration.
 
 ---
 
 ### `spark/q16_anomaly_detection.py` — Structured Streaming: IoT Anomaly Detection (Q16)
 
-**Purpose:** Detect temperature anomalies in real-time IoT sensor data. Alert when a reading exceeds AVG + 3×STDDEV computed over the past hour for that sensor.
-
-- **SNOWFLAKE + KAFKA CONFIG block:** Credentials from `.env`. Bootstrap servers `localhost:9092`.
-- **Schema block:** `StructType` with `sensor_id`, `temperature` (DoubleType), `timestamp` (TimestampType).
-- **READ FROM KAFKA block:** Subscribes to `sensor-readings`. Parses JSON bytes with `from_json`. Casts timestamp string to proper timestamp type.
-- **Rolling statistics block (foreachBatch):** Spark's window aggregation only computes forward-looking windows. To compare each incoming reading against a 1-hour rolling average, we use `foreachBatch` — each micro-batch triggers a Python function that queries Snowflake for the historical stats of that sensor, then applies the threshold.
-- **Anomaly detection logic:** If `temperature > avg_temp + 3 × std_temp` (and at least 10 readings exist for that sensor, to avoid cold-start false positives) — the reading is flagged.
-- **Dual output:** Anomalies are written to Snowflake `SENSOR_ANOMALY_ALERTS` AND produced as messages to Kafka topic `sensor-alerts` — so downstream consumers (dashboards, paging systems) can react immediately.
+Detects temperature anomalies in real-time IoT sensor data from Kafka topic `sensor-readings`. Events are decoded with `from_json` using a `StructType` schema. The anomaly detection logic uses `foreachBatch` rather than Spark's built-in window aggregation because each incoming reading must be compared against a rolling 1-hour average from Snowflake history — Spark's window function produces the aggregate but loses the raw events. Each micro-batch: persists readings to `SENSOR_READINGS` in Snowflake, queries `AVG + STDDEV_POP` over the last hour per sensor (requiring at least 10 readings to avoid cold-start false positives), then flags any reading where `temperature > avg + 3×std`. Confirmed anomalies are written to both Kafka topic `sensor-alerts` (with a graceful fallback if the broker is unreachable) and Snowflake `SENSOR_ANOMALY_ALERTS`.
 
 ---
 
-### `spark/q19_late_data_stream.py` — Structured Streaming: Late-Data Handling (Q19)
+### `spark/q19_late_data_stream.py` — Structured Streaming: Late-Data Handling with Upsert (Q19)
 
-**Purpose:** Full demonstration of the late-data handling architecture described in the Q19 theory answer — Kafka → Spark → Snowflake with MERGE upsert and a corrections history table.
+Full implementation of the late-data architecture described in the Q19 theory answer. Reads JSON sensor files from a local directory (written by `q19_sensor_producer.py`). `withWatermark('ts', '10 minutes')` accepts events up to 10 minutes late. `groupBy(window(col('ts'), '5 minutes'), col('sensor_id')).agg(avg('temperature'), count('*'))` computes per-sensor averages in 5-minute tumbling windows. `outputMode('update')` re-emits a window whenever it changes. In `upsert_to_snowflake`: for each batch row, a `SELECT version FROM SENSOR_AGGREGATES` check determines whether the window already exists. If yes — this is a late-data correction: the version number is incremented, `is_correction=True`, and an `UPDATE` is applied. If no — first arrival, version=1, `INSERT`. Every batch also appends an immutable row to `SENSOR_CORRECTIONS_HISTORY` — a full audit trail of every version of every window.
 
-- **Schema block:** `sensor_id`, `temperature`, `ts` (timestamp).
-- **Watermark + window aggregation block:** `withWatermark('ts', '10 minutes')` + `groupBy(window(col('ts'), '5 minutes'), col('sensor_id'))` + `agg(avg('temperature'), count('*'))`.
-- **`outputMode('update')`:** Re-emits a window every time it changes — including when a late event updates an already-closed window. Each re-emission triggers `foreachBatch`.
-- **`upsert_to_snowflake` function:** For each batch row, checks if the window already exists in `SENSOR_AGGREGATES`. If yes — this is a correction: increments the version number, sets `is_correction=True`. Runs a Snowflake `MERGE` (upsert) on `SENSOR_AGGREGATES` (keeps the latest value) and an `INSERT` on `SENSOR_CORRECTIONS_HISTORY` (immutable audit trail). If no — first write, version=1.
+**Companion: `q19_sensor_producer.py`** writes two phases of events: 60 on-time readings, then a 35-second pause, then 15 deliberately late readings with timestamps 7–9 minutes in the past. These fall into windows Spark has already processed, triggering the correction path.
 
 ---
 
-## For the Room (Non-Technical)
-
-Let me explain what these three technologies do using everyday analogies.
+## For the Room — Plain-Language Walkthrough
 
 ---
 
-**NiFi — the conveyor belt**
+### Q2 — NiFi: The Smart Conveyor Belt
 
-Imagine a factory where packages arrive on one conveyor belt and need to be sorted onto different belts — big packages to shipping, broken ones to repair, everything else to storage. Apache NiFi does exactly this, but for data. You draw the flow visually (drag and drop), set the rules, and NiFi runs it 24 hours a day. If something breaks, the package doesn't disappear — it waits in a queue until the problem is fixed.
+Apache NiFi is a tool for moving data from one place to another — automatically, on a schedule, with rules about what to do if something goes wrong. You draw a flowchart on screen (drag and drop, no code), set the rules, and NiFi runs it around the clock. Think of a mail-sorting machine: letters arrive on one belt, the machine reads the label, and routes them to different bins — priority post here, regular post there, undeliverable ones to the side. Our mock API here plays the role of the letter sender: it responds with transaction records, and NiFi decides what to do with each one based on its status.
 
-In this phase: NiFi picks up files from one folder, calls our fake bank API, and routes the records based on their status.
+### Q5 — Kafka Producer: Dropping Messages into the Pipeline
 
----
+Kafka is like a very fast, very reliable postal system. You drop a message into a labelled mailbox (a "topic"), and anyone who subscribes to that mailbox receives it — at their own pace, in their own time, without you having to wait for them. Q5 builds the "mail sender" side of this: a Python script that generates 2,500 fake bank transactions and drops them into a Kafka topic one by one. The key engineering detail is that sending is non-blocking — the script doesn't wait for each message to be confirmed before sending the next one. It fires them off, and at the end it pauses just long enough to confirm they all arrived safely before shutting down.
 
-**Kafka — the world's fastest post office**
+### Q8 — Reliable Kafka: What Happens When Something Goes Wrong?
 
-Imagine a post office that handles a million letters per second, never loses a single one, and lets multiple teams pick up their own copy of every letter independently. That's Kafka.
+Q8 takes the basic producer from Q5 and makes it production-grade. The key addition is delivery callbacks — for every message sent, the producer registers two functions: one to call if the message was successfully stored ("it arrived at partition 3, position 142"), and one to call if all retries were exhausted and it still failed ("this message was lost"). This is the difference between fire-and-forget and guaranteed delivery. The producer also reads from a CSV file rather than generating random data, simulating a real-world scenario where a legacy database export feeds into a modern streaming pipeline.
 
-A producer drops messages into a topic (like a mailbox labelled "transactions"). Any number of consumers can read from that mailbox — each getting their own copy, at their own pace. If a consumer goes down, Kafka keeps the messages. When it comes back, it picks up where it left off.
+### Q9 — Kafka Streams: Keeping Score Across Messages
 
-We built a producer that reads a CSV file and puts each row into Kafka. We built a stream processor that reads those rows and keeps a running score per customer. When any customer's total crosses $10,000, it fires an alert.
+This is where Kafka gets interesting. Q9 builds a stream processor that does something more than just forwarding messages — it keeps a running total. Imagine a tally counter. Every time a transaction arrives for a customer, the counter increments. When the counter crosses $10,000 for any one customer, the app sends an alert to a separate output channel. The trick is that this counter must survive across messages — message 5 from a customer must know about messages 1 through 4. This is called stateful processing, and it's the foundation of real-time fraud detection, loyalty scoring, and risk monitoring in production banking systems.
 
----
+### Q11 — Spark Batch: Ranking the Best Customers
 
-**Spark — the factory floor**
+Spark is a framework for processing large amounts of data very quickly by splitting the work across multiple computers (or multiple CPU cores). Q11 uses Spark to answer a question that sounds simple but gets expensive at scale: "Who are the top five customers by total spend, broken down by city?" The interesting technical detail is how Spark approaches this: it builds a plan (join the orders to the customer list, sum their spending, rank them within each city) but doesn't actually run anything until the last step — when you ask it to save the results. At that point it executes everything in one optimised pass, like a kitchen that preps all the ingredients before cooking everything at once.
 
-If Kafka is the post office, Spark is the factory that processes everything inside. It splits the work across all available computers (or all CPU cores on your laptop) and processes everything in parallel.
+### Q12 — Spark UDF: Teaching Spark Your Own Rules
 
-For batch processing: we gave Spark a list of customer orders, asked it to join with the customer list, add up each person's total spend, rank them within each city, and save the top 5 per city to files. All of that in one optimised pass.
+Spark knows how to count, sum, and group. But what if you want to apply a custom business rule — one that takes three inputs and returns a category? Q12 does exactly this: it defines a Python function that labels each transaction as High, Medium, or Low risk based on the transaction amount, the customer's credit score, and how many times they failed authentication. That function is then registered as a "User-Defined Function" and applied to every row in the dataset in parallel. Spark farms out the work across all available cores simultaneously. The results are then split into three tables in Snowflake — one per risk level — for the fraud team to act on.
 
-For streaming: we connected Spark directly to Kafka, so it continuously processes new messages as they arrive — like an assembly line that never stops. We used it to count website page views per 5-minute window, detect sensor temperature spikes in real time, and automatically correct past summaries when late-arriving sensor data showed up.
+### Q14 — Spark Streaming: Counting Page Views in Real Time
 
----
+Q14 connects Spark directly to Kafka so it processes data continuously — not in batches, but as a rolling stream. The use case is counting how many times each page on a website was viewed, in 5-minute windows. Every 5 minutes, Spark publishes the latest counts: "Page A had 47 views between 14:00 and 14:05." The engineering challenge here is late data: what if a page-view event arrives at 14:07 but its timestamp says 14:03? Q14 handles this gracefully — Spark accepts events up to 10 minutes late, updates the window if needed, and re-publishes the corrected count. Nothing is silently discarded.
 
-**The key insight from this whole phase:**
+### Q16 — Spark Streaming: Catching the Hot Sensor
 
-In most systems, if a message arrives late — say a sensor reading that got delayed in transit — it just gets ignored or causes an error. We built something smarter: the system *accepts* late data, updates the past result, keeps a history of every correction, and records which version each number came from. That's the kind of resilience you need in a real production system.
+Q16 is a real-time alarm system for IoT sensors. Temperature readings arrive from Kafka, and for each one, the system asks: is this reading unusual given what this sensor has done in the last hour? If the temperature is more than three standard deviations above that sensor's recent average — the statistical definition of an outlier — an alert fires immediately. The alert goes to two places: back into Kafka (so any other system monitoring alerts can react) and into Snowflake (for the long-term audit trail). A reading must wait until at least ten prior readings exist before it can trigger an alert — preventing false alarms during the first few seconds after a sensor comes online.
 
----
+### Q19 — Spark Streaming: Fixing the Past When Data Arrives Late
 
-**One more analogy for the room:**
-
-Imagine you're counting votes in an election. You have a result at 11 PM. But some mail-in ballots arrive the next morning — they're valid, just late. Our system doesn't throw those away. It reopens the count for that voting window, updates the total, records the original count AND the corrected one, and notes that a correction happened. That's exactly what we implemented for sensor readings.
+This is the most sophisticated piece of the phase. Imagine a temperature sensor in a factory that sends readings every few seconds. One reading gets delayed in transit and arrives 8 minutes after it was taken. The system has already published the average temperature for that time window — but that average is now wrong. Q19 handles this by keeping the door open: when a late reading arrives within the 10-minute window, Spark recalculates the affected time period's average, updates the stored result, increments a version counter, and writes a new row to a corrections history table so auditors can see every version of every result. The companion script demonstrates this deliberately — it sends 60 on-time readings, pauses, then sends 15 readings with timestamps from 8 minutes ago. The correction logs appear in Snowflake exactly as expected.

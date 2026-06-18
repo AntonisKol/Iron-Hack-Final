@@ -10,16 +10,6 @@ BASE_DIR   = os.path.dirname(__file__)
 CHECKPOINT = os.path.join(BASE_DIR, 'checkpoints', 's6_checkpoint')
 
 
-# ── LOAD DIMENSION TABLES INTO MEMORY ─────────────────────────────────────────
-# Pattern: dict lookup instead of Spark broadcast join.
-# USER_DIM (100 rows) and POST_DIM (500 rows) are small and stable — loading
-# them into Python dicts at startup costs one Snowflake query total.
-# A Spark broadcast join on a streaming DataFrame would work but adds complexity
-# for no gain at this scale.
-#
-# Ownership: USER_DIM and POST_DIM are populated by event_simulator.py at startup
-# (populate_dimensions()) before any events flow. This job only reads them —
-# dimensions are reference data owned by the simulator, facts by the pipeline.
 def load_dimensions():
     conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
     cur  = conn.cursor()
@@ -32,7 +22,7 @@ def load_dimensions():
     for row in cur.fetchall():
         post_dim[row[0]] = {
             'content_type': row[1],
-            'hashtags':     row[2],  # already a string from Snowflake VARIANT
+            'hashtags':     row[2],
         }
 
     conn.close()
@@ -41,7 +31,6 @@ def load_dimensions():
 
 user_dim, post_dim = load_dimensions()
 
-# ── SPARK SESSION ─────────────────────────────────────────────────────────────
 spark = SparkSession.builder \
     .appName('S6 - Data Enrichment') \
     .master('local[*]') \
@@ -53,10 +42,6 @@ spark.sparkContext.setLogLevel('WARN')
 _log4j = spark.sparkContext._jvm.org.apache.log4j
 _log4j.Logger.getLogger('org.apache.spark.sql.kafka010.KafkaDataConsumer').setLevel(_log4j.Level.ERROR)
 
-# Design note: this job reads directly from Kafka, so it enriches all events
-# including those that failed validation in s4. In a stricter production design
-# s6 would read from RAW_EVENTS WHERE is_valid = TRUE so only clean events reach
-# CURATED_EVENTS. For this capstone both jobs run independently on the same topic.
 raw_stream = spark.readStream \
     .format('kafka') \
     .option('kafka.bootstrap.servers', 'localhost:9092') \
@@ -84,17 +69,13 @@ def enrich_and_write(batch_df, batch_id):
         uid    = str(row.get('user_id') or '')
         pid    = str(row.get('post_id') or '') or None
 
-        # look up user dimension — if not found, use empty defaults
         user_info = user_dim.get(uid, {'username': 'unknown', 'user_type': 'regular'})
-
-        # look up post dimension — may not exist for FOLLOW/PROFILE_VISIT events
         post_info = post_dim.get(pid, {}) if pid else {}
 
         raw_tags = nan_to_none(row.get('hashtags'))
         if raw_tags is not None:
             hashtags_json = json.dumps(list(raw_tags) if raw_tags else [])
         elif post_info.get('hashtags'):
-            # Snowflake VARIANT comes back as a string; re-dump it for PARSE_JSON
             try:
                 hashtags_json = json.dumps(json.loads(str(post_info['hashtags'])))
             except (json.JSONDecodeError, TypeError):
@@ -118,7 +99,6 @@ def enrich_and_write(batch_df, batch_id):
             now_str,
         ))
 
-    # executemany can't batch VARIANT inserts — individual execute per row
     for row_tuple in rows:
         cur.execute(
             'INSERT INTO CURATED.CURATED_EVENTS ('

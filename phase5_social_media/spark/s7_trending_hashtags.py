@@ -10,7 +10,6 @@ from utils import SNOWFLAKE_CONFIG, EVENT_SCHEMA as schema
 BASE_DIR   = os.path.dirname(__file__)
 CHECKPOINT = os.path.join(BASE_DIR, 'checkpoints', 's7_checkpoint')
 
-# ── SPARK SESSION ─────────────────────────────────────────────────────────────
 spark = SparkSession.builder \
     .appName('S7 - Trending Hashtags') \
     .master('local[*]') \
@@ -22,7 +21,6 @@ spark.sparkContext.setLogLevel('WARN')
 _log4j = spark.sparkContext._jvm.org.apache.log4j
 _log4j.Logger.getLogger('org.apache.spark.sql.kafka010.KafkaDataConsumer').setLevel(_log4j.Level.ERROR)
 
-# ── STREAM WITH WATERMARK ─────────────────────────────────────────────────────
 raw_stream = spark.readStream \
     .format('kafka') \
     .option('kafka.bootstrap.servers', 'localhost:9092') \
@@ -39,16 +37,13 @@ stream_df = (
     .withWatermark('ts', '5 minutes')
 )
 
-# only POST_CREATED events carry explicit hashtags
-# keep all events with hashtags — simulator also puts tags in POST_CREATED events
 hashtag_df = (
     stream_df
     .filter(col('hashtags').isNotNull())
     .select(col('ts'), explode(col('hashtags')).alias('hashtag'))
 )
 
-# three window sizes in a single aggregation for efficiency:
-# we compute each window size separately to keep the Snowflake table clean
+
 def make_window_agg(df, window_duration, slide_duration=None):
     w = window(col('ts'), window_duration, slide_duration) if slide_duration \
         else window(col('ts'), window_duration)
@@ -62,7 +57,6 @@ agg_1m  = make_window_agg(hashtag_df, '1 minute')
 agg_5m  = make_window_agg(hashtag_df, '5 minutes')
 agg_15m = make_window_agg(hashtag_df, '15 minutes')
 
-# union all three granularities into a single stream
 combined = agg_1m.union(agg_5m).union(agg_15m)
 
 
@@ -80,7 +74,7 @@ def write_trending(batch_df, batch_id):
         rows.append((
             str(row['hashtag']),
             str(row['window_size']),
-            str(row['window']['start']),   # pandas Timestamp → string
+            str(row['window']['start']),
             str(row['window']['end']),
             int(row['mention_count']),
             now_str,

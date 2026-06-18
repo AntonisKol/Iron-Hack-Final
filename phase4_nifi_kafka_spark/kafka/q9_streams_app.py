@@ -4,30 +4,23 @@ import json
 
 INPUT_TOPIC = 'transactions'
 OUTPUT_TOPIC = 'high-value-customers'
-FILTER_THRESHOLD = 10_000  # only process transactions above this amount
+FILTER_THRESHOLD = 10_000
 
-# ── KTABLE: RUNNING TOTALS ────────────────────────────────────────────────────
-# In Kafka Streams this is a KTable backed by a RocksDB state store.
-# Here it's a Python dict: { customer_id → running_total }
-# Key insight: this is what makes the operation STATEFUL — we remember
-# the accumulated total across many messages, not just the current one.
 running_totals = {}
 
-# ── CONSUMER (KStream input) ──────────────────────────────────────────────────
 consumer = KafkaConsumer(
     INPUT_TOPIC,
     bootstrap_servers='localhost:9092',
-    group_id='streams-app',          # consumer group — Kafka tracks our read position
-    auto_offset_reset='earliest',    # start from the beginning if no committed offset exists
-    enable_auto_commit=True,         # commit offset after each poll (at-least-once)
-    value_deserializer=lambda v: json.loads(v.decode('utf-8')),  # JSON bytes → dict
+    group_id='streams-app',
+    auto_offset_reset='earliest',
+    enable_auto_commit=True,
+    value_deserializer=lambda v: json.loads(v.decode('utf-8')),
     key_deserializer=lambda k: k.decode('utf-8') if k else None,
 )
 
-# ── PRODUCER (output to high-value-customers) ─────────────────────────────────
 producer = KafkaProducer(
     bootstrap_servers='localhost:9092',
-    acks='all',       # at-least-once delivery on the output side too
+    acks='all',
     retries=3,
     value_serializer=lambda v: json.dumps(v).encode('utf-8'),
     key_serializer=lambda k: k.encode('utf-8') if k else None,
@@ -39,55 +32,40 @@ print(f'  Writing to   : {OUTPUT_TOPIC}')
 print(f'  Filter       : amount > ${FILTER_THRESHOLD:,}')
 print(f'  Waiting for messages... (Ctrl+C to stop)\n')
 
-processed = 0   # total messages read from input topic
-filtered = 0    # messages that passed the $10,000 filter
+processed = 0
+filtered = 0
 
 try:
-    # consumer.poll() loop — equivalent to Kafka Streams' internal processing loop
-    # each iteration processes one message from the input topic
     for message in consumer:
-        record = message.value   # already deserialized to dict by value_deserializer
+        record = message.value
         processed += 1
 
-        # safely extract fields — use .get() with defaults to avoid KeyError
         customer_id = record.get('customer_id', 'UNKNOWN')
         amount = float(record.get('amount', 0))
         transaction_id = record.get('transaction_id', '?')
 
-        # ── FILTER (stateless) ────────────────────────────────────────────────
-        # Equivalent to KStream.filter((key, value) -> value.getAmount() > 10000)
-        # Messages below the threshold are simply skipped — not forwarded
         if amount <= FILTER_THRESHOLD:
             print(f'  SKIP  {transaction_id} | {customer_id} | ${amount:,.2f} (below threshold)')
             continue
 
-        # ── GROUP BY + AGGREGATE (stateful) ──────────────────────────────────
-        # Equivalent to .groupBy(customer_id).aggregate(runningTotal + amount)
-        # We accumulate the total for this customer across ALL messages seen so far
         previous_total = running_totals.get(customer_id, 0.0)
         new_total = previous_total + amount
-        running_totals[customer_id] = new_total   # update the KTable
+        running_totals[customer_id] = new_total
         filtered += 1
 
         print(f'  PASS  {transaction_id} | {customer_id} | ${amount:,.2f} → running total: ${new_total:,.2f}')
 
-        # ── WRITE TO OUTPUT TOPIC ─────────────────────────────────────────────
-        # Equivalent to KTable.toStream().to("high-value-customers")
-        # The key is customer_id so all updates for the same customer go to
-        # the same partition, preserving order of updates per customer
         output = {
             'customer_id': customer_id,
             'running_total': round(new_total, 2),
             'latest_transaction_id': transaction_id,
             'latest_amount': amount,
-            'transactions_counted': sum(
-                1 for k in running_totals if k == customer_id
-            ),
+            'transactions_counted': sum(1 for k in running_totals if k == customer_id),
         }
 
         try:
             producer.send(OUTPUT_TOPIC, key=customer_id, value=output)
-            producer.flush()   # flush after each message so output is visible immediately
+            producer.flush()
         except KafkaError as e:
             print(f'  [ERROR] Failed to write result for {customer_id}: {e}')
 

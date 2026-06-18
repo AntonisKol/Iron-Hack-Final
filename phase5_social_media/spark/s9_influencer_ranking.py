@@ -10,7 +10,6 @@ from utils import SNOWFLAKE_CONFIG, EVENT_SCHEMA as schema
 BASE_DIR   = os.path.dirname(__file__)
 CHECKPOINT = os.path.join(BASE_DIR, 'checkpoints', 's9_checkpoint')
 
-# ── SPARK SESSION ─────────────────────────────────────────────────────────────
 spark = SparkSession.builder \
     .appName('S9 - Influencer Ranking') \
     .master('local[*]') \
@@ -22,12 +21,6 @@ spark.sparkContext.setLogLevel('WARN')
 _log4j = spark.sparkContext._jvm.org.apache.log4j
 _log4j.Logger.getLogger('org.apache.spark.sql.kafka010.KafkaDataConsumer').setLevel(_log4j.Level.ERROR)
 
-# ── STREAM + WEIGHTED AGGREGATION ─────────────────────────────────────────────
-# Assign numeric weights to event types, then sum per user per 15-minute window.
-# target_user_id holds the beneficiary for FOLLOW / PROFILE_VISIT events.
-# For post-related events the credit goes to the post author — but we only have
-# user_id (the actor) here. A production pipeline would join with POST_DIM.
-# For simplicity we score the actor's activity as a proxy for their reach.
 raw_stream = spark.readStream \
     .format('kafka') \
     .option('kafka.bootstrap.servers', 'localhost:9092') \
@@ -77,7 +70,6 @@ def write_rankings(batch_df, batch_id):
     now_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
     rows    = []
 
-    # rank within this batch — 1 = highest engagement score
     pdf['rank'] = pdf['engagement_score'].rank(ascending=False, method='min').astype(int)
 
     for _, row in pdf.iterrows():

@@ -7,10 +7,8 @@ import requests
 import json
 import os
 
-# load credentials from .env so passwords are never hardcoded
 load_dotenv('/Users/mpe/Desktop/Iron Hack/CAPSTONE /Final project/.env')
 
-# dict of Snowflake connection params — passed with ** to connect()
 SNOWFLAKE_CONFIG = {
     'account': os.getenv('SNOWFLAKE_ACCOUNT'),
     'user': os.getenv('SNOWFLAKE_USER'),
@@ -35,52 +33,45 @@ with DAG(
     catchup=False,
 ) as dag:
 
-    # task 1: call the public API and store the raw response in XCom
-    # XCom is Airflow's shared notepad — tasks write and read values through it
-    # json.dumps() converts the Python list to a string so XCom can store it
     def call_api(**context):
         url = 'https://jsonplaceholder.typicode.com/users'
-        response = requests.get(url)           # HTTP GET request to the API
-        data = response.json()                 # parse the response body as JSON
+        response = requests.get(url)
+        data = response.json()
         print(f'API returned {len(data)} records')
-        context['ti'].xcom_push(key='raw_data', value=json.dumps(data))  # store raw JSON string
+        context['ti'].xcom_push(key='raw_data', value=json.dumps(data))
 
     task_call_api = PythonOperator(
         task_id='call_api',
         python_callable=call_api,
     )
 
-    # task 2: pull raw JSON from XCom, extract only the fields we need
-    # the API returns nested objects (address, company) — we flatten them here
     def parse_response(**context):
-        raw = context['ti'].xcom_pull(task_ids='call_api', key='raw_data')  # read from XCom
-        users = json.loads(raw)                # convert string back to Python list
+        raw = context['ti'].xcom_pull(task_ids='call_api', key='raw_data')
+        users = json.loads(raw)
         parsed = []
         for user in users:
             parsed.append({
                 'id': user['id'],
                 'name': user['name'],
                 'email': user['email'],
-                'city': user['address']['city'],      # nested field inside address object
-                'company': user['company']['name'],   # nested field inside company object
+                'city': user['address']['city'],
+                'company': user['company']['name'],
             })
         print(f'Parsed {len(parsed)} users')
-        context['ti'].xcom_push(key='parsed_data', value=json.dumps(parsed))  # pass to next task
+        context['ti'].xcom_push(key='parsed_data', value=json.dumps(parsed))
 
     task_parse = PythonOperator(
         task_id='parse_response',
         python_callable=parse_response,
     )
 
-    # task 3: pull parsed data from XCom and insert each row into Snowflake
     def save_to_snowflake(**context):
         parsed = context['ti'].xcom_pull(task_ids='parse_response', key='parsed_data')
-        users = json.loads(parsed)             # convert string back to Python list
+        users = json.loads(parsed)
 
         conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
         cursor = conn.cursor()
 
-        # CREATE TABLE IF NOT EXISTS — safe to run every time, won't overwrite existing data
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS API_USERS (
                 id INT,
@@ -91,7 +82,6 @@ with DAG(
             )
         """)
 
-        # insert one row per user — %s are placeholders, values passed as a tuple to prevent SQL injection
         for user in users:
             cursor.execute("""
                 INSERT INTO API_USERS (id, name, email, city, company)
@@ -106,5 +96,4 @@ with DAG(
         python_callable=save_to_snowflake,
     )
 
-    # call_api → parse_response → save_to_snowflake
     task_call_api >> task_parse >> task_save

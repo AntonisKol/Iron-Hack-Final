@@ -27,14 +27,11 @@ with DAG(
     dag_id='fraud_detection',
     default_args=default_args,
     description='Q9 - Banking Fraud Detection Pipeline',
-    schedule='0 8 * * *',          # runs every day at 8:00 AM — STEP 5: daily scheduling
+    schedule='0 8 * * *',
     start_date=datetime(2026, 1, 1),
     catchup=False,
 ) as dag:
 
-    # ── STEP 1: LOAD TRANSACTION DATA ────────────────────────────────────────
-    # connects to Snowflake and confirms the 1M bank transactions are accessible
-    # if this fails the pipeline stops — no point running fraud rules on missing data
     def load_check():
         conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
         cursor = conn.cursor()
@@ -49,10 +46,6 @@ with DAG(
         on_failure_callback=send_failure_email,
     )
 
-    # ── STEP 2: APPLY FRAUD DETECTION RULES ──────────────────────────────────
-    # runs 4 detection rules from Phase 1 SQL on the full dataset
-    # creates FRAUD_ALERTS table — one row per suspicious transaction
-    # CASE WHEN assigns a label to each alert so analysts know why it was flagged
     def apply_fraud_rules():
         conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
         cursor = conn.cursor()
@@ -69,26 +62,22 @@ with DAG(
                 is_international,
                 is_night_transaction,
                 is_fraud,
-
-                -- assigns a label to explain WHY this transaction was flagged
                 CASE
                     WHEN transaction_amount > (
                         SELECT AVG(transaction_amount) + 3 * STDDEV(transaction_amount)
                         FROM BANK_TRANSACTIONS
-                    ) THEN 'High Amount Anomaly'           -- rule 1: amount > avg + 3 stddev
-                    WHEN failed_attempts > 3 THEN 'Multiple Failed Attempts'  -- rule 2: too many failures
+                    ) THEN 'High Amount Anomaly'
+                    WHEN failed_attempts > 3 THEN 'Multiple Failed Attempts'
                     WHEN is_international = 1 AND is_night_transaction = 1
-                        AND failed_attempts > 2 THEN 'International Night Fraud'  -- rule 3: combined risk
+                        AND failed_attempts > 2 THEN 'International Night Fraud'
                     WHEN is_international = 1 AND credit_score < 600
                         AND transaction_amount > (
                             SELECT AVG(transaction_amount) FROM BANK_TRANSACTIONS
-                        ) THEN 'High Risk International'  -- rule 4: poor credit + international + high amount
+                        ) THEN 'High Risk International'
                     ELSE 'Other'
                 END AS alert_type
-
             FROM BANK_TRANSACTIONS
             WHERE
-                -- WHERE filters which transactions to include — must match at least one rule
                 transaction_amount > (
                     SELECT AVG(transaction_amount) + 3 * STDDEV(transaction_amount)
                     FROM BANK_TRANSACTIONS
@@ -110,10 +99,6 @@ with DAG(
         on_failure_callback=send_failure_email,
     )
 
-    # ── STEP 3: FLAG AND SUMMARIZE ────────────────────────────────────────────
-    # aggregates FRAUD_ALERTS into a daily summary — one row per alert type
-    # fraud_confirmation_rate = % of flagged transactions that were actually fraud
-    # total_amount_at_risk = total money involved in suspicious transactions
     def generate_summary():
         conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
         cursor = conn.cursor()
@@ -139,9 +124,6 @@ with DAG(
         on_failure_callback=send_failure_email,
     )
 
-    # ── STEP 4: GENERATE FRAUD REPORT ────────────────────────────────────────
-    # reads FRAUD_DAILY_SUMMARY and prints a formatted table to the Airflow logs
-    # in production this would be emailed to the fraud team or sent to a dashboard
     def fraud_report():
         conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
         cursor = conn.cursor()
@@ -160,5 +142,4 @@ with DAG(
         on_failure_callback=send_failure_email,
     )
 
-    # pipeline order: load data → apply rules → summarize → report
     task_load_check >> task_apply_rules >> task_generate_summary >> task_fraud_report

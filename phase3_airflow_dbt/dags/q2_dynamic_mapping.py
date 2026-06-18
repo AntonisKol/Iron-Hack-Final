@@ -17,14 +17,9 @@ with DAG(
     catchup=False,
 ) as dag:
 
-    # this function runs once per country
-    # Airflow calls it 5 times in parallel, each time with a different country
     def process_country(country):
         print(f'Processing data for: {country}')
 
-    # .partial() defines the task template — the part that stays the same
-    # .expand() provides the list — Airflow creates one task per item automatically
-    # instead of writing 5 tasks manually, this generates all 5 in parallel
     task_process = PythonOperator.partial(
         task_id='process_country',
         python_callable=process_country,

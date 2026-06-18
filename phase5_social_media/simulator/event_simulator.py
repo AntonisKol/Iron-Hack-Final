@@ -8,7 +8,6 @@ from datetime import datetime
 from dotenv import load_dotenv
 import snowflake.connector
 
-# graceful fallback — simulator works even if kafka-python is not installed
 try:
     from kafka import KafkaProducer
     KAFKA_AVAILABLE = True
@@ -18,14 +17,13 @@ except ImportError:
 
 load_dotenv('/Users/mpe/Desktop/Iron Hack/CAPSTONE /Final project/.env')
 
-# ── CONFIGURATION ─────────────────────────────────────────────────────────────
 NUM_USERS         = 100
 NUM_POSTS         = 500
-NUM_INFLUENCERS   = 10   # first 10 users are influencers (higher engagement target)
-NUM_VIRAL_POSTS   = 50   # first 50 posts are viral candidates (higher engagement)
+NUM_INFLUENCERS   = 10
+NUM_VIRAL_POSTS   = 50
 EVENTS_PER_MINUTE = 1000
-SLEEP_INTERVAL    = 60.0 / EVENTS_PER_MINUTE  # 0.06 seconds between events
-VIRAL_BURST_SIZE  = 600  # likes sent during a viral burst — must exceed s8's VIRAL_THRESHOLD (500)
+SLEEP_INTERVAL    = 60.0 / EVENTS_PER_MINUTE
+VIRAL_BURST_SIZE  = 600
 KAFKA_TOPIC       = 'social-events'
 
 SNOWFLAKE_CONFIG = {
@@ -36,7 +34,6 @@ SNOWFLAKE_CONFIG = {
     'warehouse': os.getenv('SNOWFLAKE_WAREHOUSE'),
 }
 
-# ── STATIC REFERENCE DATA ─────────────────────────────────────────────────────
 HASHTAG_POOL = [
     '#trending', '#viral', '#instagood', '#photography', '#fashion',
     '#travel', '#food', '#fitness', '#music', '#technology',
@@ -67,14 +64,12 @@ NEUTRAL_COMMENTS = [
     'Noted', 'Will check later', 'Following',
 ]
 
-# comment pool: 70% positive, 15% negative, 15% neutral (realistic skew)
 COMMENT_POOL = (
     POSITIVE_COMMENTS * 7 +
     NEGATIVE_COMMENTS * 2 +
     NEUTRAL_COMMENTS  * 2
 )
 
-# event type weights — LIKE dominates, POST_CREATED is rare
 EVENT_TYPE_POOL = (
     ['LIKE']          * 35 +
     ['VIDEO_VIEW']    * 25 +
@@ -93,19 +88,13 @@ def make_post_id(n):
     return f'P{n:04d}'
 
 
-# ── STEP 1: POPULATE DIMENSION TABLES ────────────────────────────────────────
 def populate_dimensions():
-    """
-    Insert USER_DIM and POST_DIM into Snowflake before streaming starts.
-    These are static reference tables used for enrichment in Step 6.
-    """
     conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
     cur  = conn.cursor()
     cur.execute('USE SCHEMA CURATED')
 
     now = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
 
-    # users — build all rows first, insert in one batch
     print(f'Inserting {NUM_USERS} users into USER_DIM...')
     cur.execute('TRUNCATE TABLE USER_DIM')
     user_rows = []
@@ -124,10 +113,8 @@ def populate_dimensions():
         user_rows,
     )
 
-    # posts — PARSE_JSON requires SELECT form; batch with executemany
     print(f'Inserting {NUM_POSTS} posts into POST_DIM...')
     cur.execute('TRUNCATE TABLE POST_DIM')
-    # executemany can't batch VARIANT inserts — individual execute per row
     for i in range(1, NUM_POSTS + 1):
         pid   = make_post_id(i)
         uid   = make_user_id(random.randint(1, NUM_USERS))
@@ -143,15 +130,12 @@ def populate_dimensions():
     print('Dimension tables populated.\n')
 
 
-# ── STEP 2: EVENT GENERATOR ───────────────────────────────────────────────────
 def generate_event(event_type=None, viral_post_id=None):
-    """Build one event dict. If viral_post_id is set, force a LIKE for that post."""
     if viral_post_id:
         event_type = 'LIKE'
         post_id    = viral_post_id
     else:
         event_type = event_type or random.choice(EVENT_TYPE_POOL)
-        # viral posts get picked 5× more often
         post_num   = random.randint(1, NUM_VIRAL_POSTS) if random.random() < 0.3 else random.randint(1, NUM_POSTS)
         post_id    = make_post_id(post_num)
 
@@ -190,7 +174,6 @@ def generate_event(event_type=None, viral_post_id=None):
 
 
 def write_event(event, producer=None):
-    """Send event to Kafka topic 'social-events'. All Spark jobs consume from Kafka directly."""
     payload = json.dumps(event).encode('utf-8')
 
     if producer:
@@ -200,29 +183,21 @@ def write_event(event, producer=None):
             print(f'[Kafka] send failed: {e}')
 
 
-# ── STEP 3: VIRAL BURST ───────────────────────────────────────────────────────
 def viral_burst(producer=None):
-    """
-    Simulate a viral post: send VIRAL_BURST_SIZE LIKE events to the same post
-    in rapid succession. This will trigger the viral detection pipeline (Step 8).
-    """
     viral_post_id = make_post_id(random.randint(1, NUM_VIRAL_POSTS))
     print(f'\n🔥 VIRAL BURST → {viral_post_id} ({VIRAL_BURST_SIZE} likes)\n')
     for _ in range(VIRAL_BURST_SIZE):
         event = generate_event(viral_post_id=viral_post_id)
         write_event(event, producer)
-        time.sleep(0.01)  # 100 events/second during burst
+        time.sleep(0.01)
 
 
-# ── MAIN LOOP ─────────────────────────────────────────────────────────────────
 def main():
     print('=== Social Media Event Simulator ===')
     print(f'Target rate : {EVENTS_PER_MINUTE} events/minute')
 
-    # populate dimension tables first
     populate_dimensions()
 
-    # connect to Kafka if available
     producer = None
     if KAFKA_AVAILABLE:
         try:
@@ -232,7 +207,7 @@ def main():
             print(f'[WARN] Kafka not reachable ({e}) — events will be dropped\n')
 
     total_sent  = 0
-    burst_every = 60   # trigger a viral burst every ~60 seconds
+    burst_every = 60
 
     print('Streaming events... (Ctrl+C to stop)\n')
     print(f'{"#":>8}  {"Type":<15}  {"User":<8}  {"Post/Target":<10}  Timestamp')
@@ -253,7 +228,6 @@ def main():
                       f'{event.get("post_id", event.get("target_user_id", "—")):<10}  '
                       f'{event["timestamp"]}  ({rate_min:.0f} evt/min)')
 
-            # trigger a viral burst every burst_every seconds
             elapsed = time.time() - start_time
             if int(elapsed) > 0 and int(elapsed) % burst_every == 0 and total_sent % 10 == 0:
                 viral_burst(producer)

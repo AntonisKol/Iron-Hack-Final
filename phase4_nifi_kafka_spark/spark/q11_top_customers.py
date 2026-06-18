@@ -2,22 +2,12 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import sum as _sum, col, rank, desc
 from pyspark.sql.window import Window
 
-# ── SPARK SESSION ─────────────────────────────────────────────────────────────
-# SparkSession is the entry point to all Spark functionality.
-# 'local[*]' means run locally using all available CPU cores.
-# In production this would point to a cluster: spark://master:7077
 spark = SparkSession.builder \
     .appName('Q11 - Top Customers Per City') \
     .master('local[*]') \
     .getOrCreate()
 
-# suppress verbose Spark logs — only show warnings and errors
 spark.sparkContext.setLogLevel('WARN')
-
-# ── SAMPLE DATA ───────────────────────────────────────────────────────────────
-# In production these would be read from files or a database:
-#   spark.read.parquet("s3://bucket/orders/")
-#   spark.read.jdbc(url, "customers", properties)
 
 orders_data = [
     (1,  'C001', 250.00),
@@ -55,8 +45,6 @@ customers_data = [
     ('C010', 'Jack',    'London'),
 ]
 
-# createDataFrame turns a list of tuples into a Spark DataFrame
-# schema defines column names and their order
 orders_df = spark.createDataFrame(orders_data, schema=['order_id', 'customer_id', 'amount'])
 customers_df = spark.createDataFrame(customers_data, schema=['customer_id', 'name', 'city'])
 
@@ -66,43 +54,20 @@ orders_df.show()
 print('=== Customers ===')
 customers_df.show()
 
-# ── STEP 1: JOIN ──────────────────────────────────────────────────────────────
-# Inner join: keep only rows where customer_id exists in BOTH DataFrames.
-# This is a TRANSFORMATION — Spark just adds it to the DAG, nothing runs yet.
-# In SQL: SELECT * FROM orders JOIN customers ON orders.customer_id = customers.customer_id
 joined_df = orders_df.join(customers_df, on='customer_id', how='inner')
 
-# ── STEP 2: TOTAL SPEND PER CUSTOMER ─────────────────────────────────────────
-# Group by customer_id + city + name, sum all their order amounts.
-# This is still a TRANSFORMATION.
 spend_df = joined_df.groupBy('customer_id', 'name', 'city') \
     .agg(_sum('amount').alias('total_spend'))
 
-# ── STEP 3: RANK WITHIN EACH CITY ────────────────────────────────────────────
-# Window function: for each city, rank customers by total_spend descending.
-# partitionBy('city') = restart the ranking for each city (like GROUP BY in SQL)
-# orderBy(desc('total_spend')) = rank 1 = highest spender
 window = Window.partitionBy('city').orderBy(desc('total_spend'))
 
 ranked_df = spend_df.withColumn('rank', rank().over(window))
 
-# ── STEP 4: FILTER TOP 5 PER CITY ────────────────────────────────────────────
-# Keep only ranks 1-5. Still a transformation.
 top5_df = ranked_df.filter(col('rank') <= 5) \
                    .orderBy('city', 'rank')
 
 print('=== Top 5 customers by total spend per city ===')
-# .show() is an ACTION — this is the first point where Spark actually runs
-# all the transformations above (join, groupBy, window, filter) in one optimised pass
 top5_df.show()
-
-# ── STEP 5: WRITE AS PARQUET PARTITIONED BY CITY ─────────────────────────────
-# .write is another ACTION — triggers execution and writes files to disk.
-# partitionBy('city') creates one subfolder per city:
-#   output/city=London/part-*.parquet
-#   output/city=Paris/part-*.parquet
-#   output/city=Berlin/part-*.parquet
-# A query filtering by city='London' reads ONLY the London folder — much faster.
 
 output_path = 'phase4_nifi_kafka_spark/spark/output/top_customers'
 
@@ -114,7 +79,6 @@ top5_df.write \
 print(f'Written to: {output_path}')
 print('Partitions:')
 
-# verify: read back and show partition structure
 import os
 for root, dirs, files in os.walk(output_path):
     level = root.replace(output_path, '').count(os.sep)

@@ -23,7 +23,6 @@ CHECKPOINT  = os.path.join(BASE_DIR, 'output', 'q19_checkpoint')
 
 os.makedirs(INPUT_DIR, exist_ok=True)
 
-# ── SPARK SESSION ─────────────────────────────────────────────────────────────
 spark = SparkSession.builder \
     .appName('Q19 - Late Data Handling') \
     .master('local[*]') \
@@ -32,21 +31,15 @@ spark = SparkSession.builder \
 
 spark.sparkContext.setLogLevel('WARN')
 
-# ── SCHEMA ────────────────────────────────────────────────────────────────────
 schema = StructType() \
     .add('sensor_id',   StringType()) \
     .add('temperature', DoubleType()) \
     .add('ts',          TimestampType())
 
-# ── READ STREAM ───────────────────────────────────────────────────────────────
 stream_df = spark.readStream \
     .schema(schema) \
     .json(INPUT_DIR)
 
-# ── WATERMARK + WINDOW AGGREGATION ────────────────────────────────────────────
-# withWatermark: accept events up to 10 minutes late
-# window("ts", "5 minutes"): group by 5-minute tumbling buckets on the EVENT timestamp
-# outputMode("update"): emit a window row every time it changes (not just when finalized)
 aggregated = (
     stream_df
     .withWatermark('ts', '10 minutes')
@@ -60,12 +53,11 @@ aggregated = (
     )
 )
 
-# ── SNOWFLAKE TABLE SETUP ─────────────────────────────────────────────────────
+
 def init_tables():
     conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
     cur  = conn.cursor()
 
-    # latest result per window per sensor — upserted on every Spark batch
     cur.execute("""
         CREATE TABLE IF NOT EXISTS SENSOR_AGGREGATES (
             window_start  TIMESTAMP,
@@ -78,7 +70,6 @@ def init_tables():
         )
     """)
 
-    # full audit trail — one row per version per window per sensor (never deleted)
     cur.execute("""
         CREATE TABLE IF NOT EXISTS SENSOR_CORRECTIONS_HISTORY (
             window_start  TIMESTAMP,
@@ -97,7 +88,7 @@ def init_tables():
 
 init_tables()
 
-# ── UPSERT FUNCTION (called once per micro-batch) ─────────────────────────────
+
 def upsert_to_snowflake(batch_df, batch_id):
     """
     foreachBatch receives each micro-batch as a regular (non-streaming) DataFrame.
@@ -106,7 +97,6 @@ def upsert_to_snowflake(batch_df, batch_id):
     if batch_df.isEmpty():
         return
 
-    # flatten window struct {start, end} into two plain columns
     flat_df = batch_df.select(
         col('window.start').alias('window_start'),
         col('window.end').alias('window_end'),
@@ -115,24 +105,19 @@ def upsert_to_snowflake(batch_df, batch_id):
         col('reading_count'),
     )
 
-    # toPandas() is an ACTION — triggers Spark computation for this batch
     pdf = flat_df.toPandas()
     conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
     cur  = conn.cursor()
     now  = datetime.utcnow()
-
-    # Snowflake connector cannot bind pandas Timestamp objects directly —
-    # convert everything to plain Python strings/floats before executing.
     now_str = now.strftime('%Y-%m-%d %H:%M:%S')
 
     for _, row in pdf.iterrows():
-        w_start = str(row['window_start'])   # pandas Timestamp → string
+        w_start = str(row['window_start'])
         w_end   = str(row['window_end'])
         sid     = str(row['sensor_id'])
         avg_t   = float(row['avg_temp'])
         cnt     = int(row['reading_count'])
 
-        # does this window already exist? (i.e., is this a late-data correction?)
         cur.execute(
             'SELECT version FROM SENSOR_AGGREGATES '
             'WHERE window_start = %s AND sensor_id = %s',
@@ -141,7 +126,6 @@ def upsert_to_snowflake(batch_df, batch_id):
         existing = cur.fetchone()
 
         if existing:
-            # late event arrived — update the existing aggregate
             new_version   = existing[0] + 1
             is_correction = True
             cur.execute(
@@ -151,7 +135,6 @@ def upsert_to_snowflake(batch_df, batch_id):
                 (avg_t, cnt, now_str, new_version, w_start, sid),
             )
         else:
-            # first time we see this window — insert
             new_version   = 1
             is_correction = False
             cur.execute(
@@ -161,7 +144,6 @@ def upsert_to_snowflake(batch_df, batch_id):
                 (w_start, w_end, sid, avg_t, cnt, now_str, new_version),
             )
 
-        # always append to history — preserves every version for Power BI corrections view
         cur.execute(
             'INSERT INTO SENSOR_CORRECTIONS_HISTORY '
             '(window_start, window_end, sensor_id, avg_temp, reading_count, '
@@ -171,11 +153,11 @@ def upsert_to_snowflake(batch_df, batch_id):
         )
 
         tag = 'CORRECTION v' + str(new_version) if is_correction else 'NEW        v1'
-        print(f'  [{tag}]  {sid}  {w_start}–{w_end}  avg={avg_t:.2f}°C  n={cnt}')
+        print(f'  [{tag}]  {sid}  {w_start}–{w_end}  avg={avg_t:.2f}C  n={cnt}')
 
     conn.close()
 
-# ── WRITE STREAM ──────────────────────────────────────────────────────────────
+
 query = (
     aggregated.writeStream
     .outputMode('update')

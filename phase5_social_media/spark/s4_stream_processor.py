@@ -17,7 +17,6 @@ CHECKPOINT = os.path.join(BASE_DIR, 'checkpoints', 's4_checkpoint')
 
 os.makedirs(BAD_DIR, exist_ok=True)
 
-# ── SPARK SESSION ─────────────────────────────────────────────────────────────
 spark = SparkSession.builder \
     .appName('S4+S5 - Stream Processor & RAW Layer') \
     .master('local[*]') \
@@ -29,7 +28,6 @@ spark.sparkContext.setLogLevel('WARN')
 _log4j = spark.sparkContext._jvm.org.apache.log4j
 _log4j.Logger.getLogger('org.apache.spark.sql.kafka010.KafkaDataConsumer').setLevel(_log4j.Level.ERROR)
 
-# ── READ STREAM ───────────────────────────────────────────────────────────────
 raw_stream = spark.readStream \
     .format('kafka') \
     .option('kafka.bootstrap.servers', 'localhost:9092') \
@@ -42,10 +40,7 @@ stream_df = raw_stream.select(
     from_json(col('value').cast('string'), schema).alias('d')
 ).select('d.*')
 
-# ── VALIDATION ────────────────────────────────────────────────────────────────
-# Step 4: data quality checks — mark invalid records instead of dropping them.
-# Malformed records land in RAW_EVENTS with is_valid=FALSE and a reason.
-# This preserves the full audit trail — nothing is silently discarded.
+
 def validate_row(row):
     errors = []
     if not row.get('event_id'):
@@ -59,7 +54,6 @@ def validate_row(row):
     return errors
 
 
-# ── WRITE TO SNOWFLAKE RAW ────────────────────────────────────────────────────
 def write_to_raw(batch_df, batch_id):
     if batch_df.isEmpty():
         return
@@ -82,7 +76,6 @@ def write_to_raw(batch_df, batch_id):
             valid_cnt += 1
         else:
             invalid_cnt += 1
-            # save bad records locally for investigation
             bad_path = os.path.join(BAD_DIR, f'bad_{batch_id}_{row_dict.get("event_id","x")}.json')
             with open(bad_path, 'w') as f:
                 json.dump({**row_dict, 'errors': errors}, f)
@@ -121,7 +114,6 @@ def write_to_raw(batch_df, batch_id):
     print(f'  Batch {batch_id}: {valid_cnt} valid, {invalid_cnt} invalid → RAW_EVENTS')
 
 
-# ── WRITE STREAM ──────────────────────────────────────────────────────────────
 query = stream_df.writeStream \
     .foreachBatch(write_to_raw) \
     .trigger(processingTime='10 seconds') \

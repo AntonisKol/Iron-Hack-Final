@@ -26,14 +26,13 @@ with DAG(
         python_callable=task_ok,
     )
 
-    # on_failure_callback runs send_failure_email when this task fails
     def task_fail():
         raise Exception('Simulated failure — triggers the email notification')
 
     task_failure = PythonOperator(
         task_id='task_failure',
         python_callable=task_fail,
-        on_failure_callback=send_failure_email,  # called automatically on failure
+        on_failure_callback=send_failure_email,
     )
 
     task_success >> task_failure

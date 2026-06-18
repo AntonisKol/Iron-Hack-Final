@@ -23,168 +23,114 @@ This is the capstone of the programme — it uses all prior technologies togethe
 
 ### `snowflake/setup.sql` — Database & Schema Initialisation
 
-**Purpose:** One-time setup. Creates the entire Snowflake data warehouse structure before any data flows.
-
-- **Database block:** `CREATE DATABASE IF NOT EXISTS SOCIAL_MEDIA_DB`.
-- **RAW schema block:** Creates `RAW.RAW_EVENTS` — the landing zone for every event that arrives, valid or invalid. Columns: `event_id`, `event_type`, `user_id`, `post_id`, `target_user_id`, `hashtags` (VARIANT — Snowflake's JSON column type), `comment_text`, `raw_payload` (full JSON as VARIANT), `is_valid` (BOOLEAN), `event_timestamp`, `ingested_at`.
-- **CURATED schema block:** Creates `CURATED.USER_DIM` (100 users with type, follower count, country), `CURATED.POST_DIM` (500 posts with content type and hashtags), `CURATED.CURATED_EVENTS` (enriched events joined with both dimensions).
-- **ANALYTICS schema block:** Creates `ANALYTICS.TRENDING_HASHTAGS`, `ANALYTICS.VIRAL_POSTS`, `ANALYTICS.INFLUENCER_RANKING`, `ANALYTICS.COMMENT_SENTIMENT` — the four insight tables that Tableau reads.
+One-time setup that creates the entire Snowflake warehouse structure. `CREATE DATABASE IF NOT EXISTS SOCIAL_MEDIA_DB` establishes the database. Three schemas are created: `RAW` holds `RAW_EVENTS` — the landing zone for every event, valid or invalid, with columns for `event_id`, `event_type`, `user_id`, `hashtags` (VARIANT — Snowflake's native JSON column type), `raw_payload` (full event as VARIANT for audit), `is_valid` (BOOLEAN), and `validation_errors`. `CURATED` holds `USER_DIM` (100 users with type, follower count, country), `POST_DIM` (500 posts with content type and hashtag arrays), and `CURATED_EVENTS` (enriched events joined with both dimensions). `ANALYTICS` holds four output tables: `TRENDING_HASHTAGS`, `VIRAL_POSTS`, `INFLUENCER_RANKING`, and `COMMENT_SENTIMENT` — the tables Tableau connects to.
 
 ---
 
 ### `simulator/event_simulator.py` — Event Generator
 
-**Purpose:** Act as the "social media application." Generates realistic user activity at 1,000 events/minute and publishes to Kafka. Also seeds the dimension tables.
-
-- **CONFIGURATION block:** Constants — `NUM_USERS=100`, `NUM_POSTS=500`, `NUM_INFLUENCERS=10` (first 10 users), `NUM_VIRAL_POSTS=50` (first 50 posts), `EVENTS_PER_MINUTE=1000`, `SLEEP_INTERVAL=0.06s`, `VIRAL_BURST_SIZE=600` (exceeds the viral detection threshold of 500).
-- **Static reference data block:** `HASHTAG_POOL` (30 hashtags), `CONTENT_TYPES`, `COUNTRIES`, pre-written positive/negative comment strings. Used to generate realistic-looking events without needing a real database.
-- **KafkaProducer init block:** Graceful fallback — if `kafka-python` is not installed, the simulator still writes events to a local folder. When Kafka is available, it serialises each event dict as UTF-8 JSON and sends to `social-events` topic.
-- **Snowflake seed block:** On startup, populates `USER_DIM` and `POST_DIM` with the reference users and posts. This ensures the enrichment job (`s6`) has dimension data to join against.
-- **Event generation loop:** Infinite loop. Each iteration picks a random event type from a weighted distribution (LIKEs are most common, POSTs least common — mirrors real social media behaviour). Calls the appropriate generator function, publishes to Kafka, sleeps 0.06 seconds.
-- **`viral_burst()` function:** Fires 600 LIKE events to one random post in rapid succession — designed to exceed the 500-likes-per-5-minutes threshold that `s8_viral_detection.py` watches for.
+Acts as the "social media application." Generates realistic user activity at 1,000 events per minute and publishes to Kafka. Configuration constants define the simulation bounds: `NUM_USERS=100`, `NUM_POSTS=500`, `NUM_INFLUENCERS=10` (first 10 users get influencer status and higher follower counts), `NUM_VIRAL_POSTS=50` (first 50 posts are picked more often), `VIRAL_BURST_SIZE=600` (exceeds the 500-like viral detection threshold). Static reference data — 30 hashtags, 5 content types, 10 countries, weighted comment pools (70% positive, 15% negative, 15% neutral) — is used to generate realistic-looking events. The event type pool is weighted: LIKE at 35%, VIDEO_VIEW 25%, PROFILE_VISIT 15%, COMMENT 10%, SHARE 7%, FOLLOW 5%, POST_CREATED 3% — mirroring real social platform behaviour. On startup, `populate_dimensions()` seeds `USER_DIM` and `POST_DIM` in Snowflake before streaming begins. `KafkaProducer` includes a graceful fallback: if `kafka-python` is not installed, the simulator prints a warning and continues running without Kafka. The `viral_burst()` function fires 600 LIKE events to one random post in rapid succession — 100 events per second for 6 seconds — to trigger the viral detection pipeline.
 
 ---
 
 ### `kafka/create_topics.py` — Topic Setup
 
-**Purpose:** Create the Kafka topic before the simulator or any Spark job starts.
-
-- **`KafkaAdminClient` block:** Connects to `localhost:9092`.
-- **`NewTopic` block:** `social-events` with `num_partitions=3`. Three partitions allows three Spark tasks to read in parallel — one task per partition — matching the default `spark.sql.shuffle.partitions=4` configuration.
-- **Error handling:** `TopicAlreadyExistsError` is silently caught — safe to re-run.
+Creates the Kafka topic before any other component starts. `KafkaAdminClient` connects to `localhost:9092`. `NewTopic('social-events', num_partitions=3)` creates the topic with three partitions — allowing three Spark tasks to read in parallel, one per partition, matching the `spark.sql.shuffle.partitions=4` configuration. `TopicAlreadyExistsError` is silently caught, making the script safe to re-run.
 
 ---
 
 ### `kafka/validate_consumer.py` — Ingestion Validator
 
-**Purpose:** Verify the pipeline is running correctly. Connects to `social-events` and prints a live event-type count summary.
-
-- **Consumer block:** `auto_offset_reset='earliest'` — reads from the beginning on first run. `group_id='validator'` — separate consumer group from the Spark jobs, so validation doesn't affect their offsets.
-- **Counting loop:** Maintains a `defaultdict` counting events per `event_type`. Every 100 messages, prints the running distribution. Confirms all 7 event types are present and the ratio looks realistic.
+Verifies the pipeline is running correctly by consuming from `social-events` with a separate consumer group (`group_id='validator'`) so that validation reads don't affect the Spark jobs' offsets. `auto_offset_reset='earliest'` reads from the beginning on first run. A `defaultdict` counts events by `event_type` and prints the running distribution every 100 messages, confirming all 7 event types are present in realistic proportions.
 
 ---
 
 ### `spark/utils.py` — Shared Module
 
-**Purpose:** Single source of truth for three things used by all six Spark jobs. Imported via `from utils import SNOWFLAKE_CONFIG, EVENT_SCHEMA as schema, nan_to_none`.
-
-- **`SNOWFLAKE_CONFIG` dict:** Account, user, password, database, warehouse — all loaded from `.env`. Every Spark job passes this dict to `snowflake.connector.connect(**SNOWFLAKE_CONFIG)`.
-- **`EVENT_SCHEMA` StructType:** Defines the JSON structure that Spark expects when parsing Kafka messages with `from_json()`. All 11 fields declared with their Spark types. Using `ArrayType(StringType())` for `hashtags` — Snowflake's VARIANT becomes a Python list.
-- **`nan_to_none(v)` function:** Solves a subtle bug. When a Spark DataFrame is converted to Pandas via `.toPandas()`, optional float fields that have no value become `float('nan')` — not Python `None`. But `float('nan')` is **truthy** in Python (`nan or []` returns `nan`, not `[]`), and Snowflake rejects `NAN` as a literal. `nan_to_none` uses `math.isnan(float(v))` to catch this and return `None` instead.
+Single source of truth for three things imported by every Spark job. `SNOWFLAKE_CONFIG` loads all six connection parameters from `.env` and is passed to `snowflake.connector.connect(**SNOWFLAKE_CONFIG)`. `EVENT_SCHEMA` is the `StructType` Spark uses when calling `from_json()` on Kafka message bytes — all 11 fields declared with their types, including `ArrayType(StringType())` for hashtags. `nan_to_none(v)` solves a subtle Pandas/Snowflake compatibility issue: when a Spark DataFrame is converted to Pandas via `.toPandas()`, optional float fields with no value become `float('nan')` rather than Python `None`. Since `float('nan')` is truthy in Python (`nan or []` evaluates to `nan`), this would cause hashtag serialisation to break silently and Snowflake to reject `NAN` as a literal. `math.isnan(float(v))` catches this and returns `None`, which serialises correctly as SQL NULL.
 
 ---
 
 ### `spark/s4_stream_processor.py` — RAW Ingestion + Validation (Steps 4 & 5)
 
-**Purpose:** Consume every event from Kafka, validate it, and write to `RAW.RAW_EVENTS` — the immutable landing zone.
-
-- **SparkSession block:** `spark.jars.packages` pulls the Kafka connector JAR. `spark.sql.shuffle.partitions=4` limits shuffle overhead for local execution.
-- **READ FROM KAFKA block:** `readStream.format('kafka').option('subscribe', 'social-events').load()`. `.select(from_json(col('value').cast('string'), schema).alias('d')).select('d.*')` — deserialises the JSON bytes into a typed DataFrame.
-- **`write_to_raw(batch_df, batch_id)` function (foreachBatch):** Called every 15 seconds with the latest micro-batch. For each row: validates `event_type` is in `VALID_EVENT_TYPES`, validates `user_id` and `event_id` are not null, sets `is_valid` flag. Writes every event (valid AND invalid) to `RAW_EVENTS` — the raw layer never drops records. Invalid events are preserved for audit and debugging.
-- **`nan_to_none` guard on `hashtags`:** The `hashtags` column can be `float('nan')` if the event type doesn't carry hashtags. Without the guard, `json.dumps(nan)` raises `ValueError`. The guard returns `None` → serialised as `null` → Snowflake inserts `NULL`.
+Consumes every event from Kafka and writes it to `RAW.RAW_EVENTS` — the immutable landing zone. Events are read with `readStream.format('kafka').option('subscribe', 'social-events')` and decoded with `from_json(col('value').cast('string'), schema)`. The `validate_row(row)` function checks four conditions: `event_id` must exist, `event_type` must be one of the seven valid types, `user_id` must exist, and events of type LIKE/COMMENT/SHARE/VIDEO_VIEW must carry a `post_id`. Every event — valid or invalid — is written to `RAW_EVENTS` with `is_valid` flag and `validation_errors` string. Invalid events are also saved locally as JSON files in `data/bad_records/` for investigation. The `nan_to_none` guard on the `hashtags` field prevents `json.dumps(nan)` from raising a `ValueError` on events that have no hashtags. Nothing is silently discarded — the raw layer is a complete audit trail.
 
 ---
 
 ### `spark/s6_enrichment.py` — CURATED Layer (Step 6)
 
-**Purpose:** Join streaming events with dimension tables loaded from Snowflake, write enriched rows to `CURATED.CURATED_EVENTS`.
-
-- **Dimension loading block (at startup):** Reads `USER_DIM` and `POST_DIM` from Snowflake into Pandas DataFrames, converts to Spark DataFrames. These are loaded once and cached for the lifetime of the streaming job — reading dimensions from Snowflake on every micro-batch would be too slow.
-- **READ FROM KAFKA block:** Same pattern as `s4`.
-- **`enrich_and_write(batch_df, batch_id)` function:** Joins each batch against the cached dimension DataFrames using Spark's `.join()`. Adds `username`, `user_type`, `follower_count`, `content_type` from the dimension tables. Writes only enriched (successfully joined) rows to `CURATED_EVENTS`. Events with no matching `user_id` in `USER_DIM` are silently dropped — they're invalid references.
+Joins streaming events with dimension tables loaded from Snowflake and writes enriched rows to `CURATED.CURATED_EVENTS`. Dimension data (`USER_DIM` and `POST_DIM`) is loaded from Snowflake into Pandas DataFrames at startup, then converted to Spark DataFrames and cached for the lifetime of the streaming job — reading dimensions on every micro-batch would be prohibitively slow. Each batch is joined against the cached dimensions using Spark's `.join()`. The enriched row adds `username`, `user_type`, `follower_count`, and `content_type` from the dimension tables. Events with no matching `user_id` in `USER_DIM` are dropped — they represent references to users that don't exist in the dimension data.
 
 ---
 
 ### `spark/s7_trending_hashtags.py` — Trending Hashtags (Step 7)
 
-**Purpose:** Compute hashtag frequency across three window sizes simultaneously and write to `ANALYTICS.TRENDING_HASHTAGS`.
-
-- **READ + WATERMARK block:** `withWatermark('ts', '5 minutes')` — accepts late events up to 5 minutes old.
-- **Hashtag explosion block:** `filter(col('hashtags').isNotNull())` → `.select(col('ts'), explode(col('hashtags')).alias('hashtag'))`. `explode()` takes an array column and creates one row per array element — a post with three hashtags produces three rows.
-- **`make_window_agg(df, window_duration)` function:** Reusable helper. Builds `groupBy(window(col('ts'), duration), col('hashtag')).agg(count('*').alias('mention_count'))` and tags the result with the window size string.
-- **Three aggregations + union:** `agg_1m`, `agg_5m`, `agg_15m` — three separate streaming aggregations on the same DataFrame. `.union()` merges all three into one stream. A single `writeStream.foreachBatch(write_trending)` writes all three granularities to the same Snowflake table in one batch.
+Computes hashtag frequency across three window sizes simultaneously and writes to `ANALYTICS.TRENDING_HASHTAGS`. Events are filtered to those carrying hashtags, then `explode(col('hashtags'))` converts the array column to one row per hashtag per event — a post with three hashtags produces three rows. The reusable `make_window_agg(df, window_duration)` function builds `groupBy(window(col('ts'), duration), col('hashtag')).agg(count('*').alias('mention_count'))` and tags each row with the window size. Three separate streaming aggregations — `agg_1m`, `agg_5m`, `agg_15m` — are unioned into one stream. A single `writeStream.foreachBatch` sink writes all three granularities to the same Snowflake table in each batch.
 
 ---
 
 ### `spark/s8_viral_detection.py` — Viral Post Detection (Step 8)
 
-**Purpose:** Detect posts that accumulate more than 500 LIKE events within any 5-minute window.
-
-- **`VIRAL_THRESHOLD = 500` constant:** Configurable — can be tuned without touching the logic.
-- **Aggregation block:** Filters only `event_type == 'LIKE'` and `post_id IS NOT NULL`. `groupBy(window(col('ts'), '5 minutes'), col('post_id')).agg(count('*').alias('like_count'))`. Note: the filter for viral threshold happens **inside `foreachBatch`**, not before `writeStream`. This is intentional — Spark must track all posts' like counts in window state to know when any of them cross 500. Filtering before aggregation would only track already-viral posts, making detection impossible.
-- **`detect_and_write(batch_df, batch_id)` function:** Applies `filter(col('like_count') >= VIRAL_THRESHOLD)` on the batch. If any post crossed the threshold: prints a `VIRAL DETECTED` alert to console, inserts into `ANALYTICS.VIRAL_POSTS`.
-- **`outputMode('update')`:** Re-emits each window row every time the like count changes. The simulator's `viral_burst()` function fires 600 likes in ~36 seconds — enough to push one post over the threshold within a single 5-minute window.
+Detects posts that accumulate more than 500 LIKE events within any 5-minute window. Only `event_type == 'LIKE'` events with a non-null `post_id` enter the aggregation: `groupBy(window(col('ts'), '5 minutes'), col('post_id')).agg(count('*').alias('like_count'))`. Crucially, the viral threshold filter happens inside `foreachBatch` rather than before `writeStream` — Spark must track all posts' like counts in window state to know when any of them cross 500; filtering before aggregation would make detection of threshold crossings impossible. `outputMode('update')` re-emits each window row every time the like count changes. The simulator's `viral_burst()` fires 600 likes in ~36 seconds — enough to push one post over the threshold within a single 5-minute window, triggering a `VIRAL DETECTED` console alert and an insert into `ANALYTICS.VIRAL_POSTS`.
 
 ---
 
 ### `spark/s9_influencer_ranking.py` — Influencer Engagement Scoring (Step 9)
 
-**Purpose:** Score every user's activity in 15-minute windows using a weighted formula and rank them.
-
-- **Weight assignment block:** `when(col('event_type') == 'LIKE', lit(1.0)).when(...COMMENT..., lit(3.0)).when(...SHARE..., lit(5.0)).when(...VIDEO_VIEW..., lit(0.5)).when(...FOLLOW..., lit(2.0)).otherwise(lit(0.0))` — adds a `weight` column to each event row. Comments and shares are weighted higher because they indicate intent, not passive consumption.
-- **Aggregation block:** `groupBy(window(col('ts'), '15 minutes'), col('user_id')).agg(_sum('weight').alias('engagement_score'), count(when(event_type == 'LIKE', True)).alias('like_count'), ...)` — one row per user per 15-minute window with total score and per-type breakdown.
-- **`write_rankings(batch_df, batch_id)` function:** Computes batch-level rank with `pdf['engagement_score'].rank(ascending=False, method='min')`. Inserts all rows into `ANALYTICS.INFLUENCER_RANKING`. Prints top 5 for monitoring.
+Scores every user's activity in 15-minute windows using a weighted formula. A `when().otherwise()` chain assigns a weight to each event: LIKE=1.0, VIDEO_VIEW=0.5, FOLLOW=2.0, COMMENT=3.0, SHARE=5.0 — comments and shares are weighted higher because they indicate active intent rather than passive consumption. `groupBy(window(col('ts'), '15 minutes'), col('user_id')).agg(_sum('weight').alias('engagement_score'))` produces one row per user per window. In `write_rankings`, Pandas rank is computed with `pdf['engagement_score'].rank(ascending=False, method='min')` and all rows are inserted into `ANALYTICS.INFLUENCER_RANKING` with the top 5 printed to console.
 
 ---
 
 ### `spark/s10_sentiment.py` — Comment Sentiment Analysis (Step 10)
 
-**Purpose:** Classify every comment's text as POSITIVE, NEUTRAL, or NEGATIVE using keyword matching. Write results to `ANALYTICS.COMMENT_SENTIMENT`.
-
-- **Keyword lists block:** `NEGATIVE_KEYWORDS` (15 words: 'terrible', 'awful', 'hate', etc.) and `POSITIVE_KEYWORDS` (15 words: 'love', 'amazing', 'incredible', etc.). Negative is checked first — if a comment contains 'not great', checking negative first avoids the word 'great' triggering POSITIVE.
-- **`classify_sentiment(text)` function:** Lowercases the text, iterates negative keywords first, then positive. Returns 'NEGATIVE', 'POSITIVE', or 'NEUTRAL'. Returns 'NEUTRAL' for null or empty text.
-- **`sentiment_udf = udf(classify_sentiment, StringType())`:** Registers the function as a Spark UDF — Spark distributes it across all executor threads. `StringType()` tells Spark the return type so it can build the execution plan.
-- **Stream filter block:** `filter(col('event_type') == 'COMMENT')` and `filter(col('comment_text').isNotNull())` — only COMMENT events with non-null text enter the aggregation.
-- **`write_sentiment(batch_df, batch_id)` function:** Inserts rows into `ANALYTICS.COMMENT_SENTIMENT`. Prints a distribution summary: how many POSITIVE / NEUTRAL / NEGATIVE comments in this batch.
+Classifies every comment's text as POSITIVE, NEUTRAL, or NEGATIVE using keyword matching. `NEGATIVE_KEYWORDS` (15 words including 'terrible', 'awful', 'hate') and `POSITIVE_KEYWORDS` (15 words including 'love', 'amazing', 'incredible') define the vocabulary. `classify_sentiment(text)` lowercases the text and checks negative keywords first — this ordering prevents 'not great' from triggering POSITIVE on the word 'great'. Returns 'NEUTRAL' for null or empty text. `udf(classify_sentiment, StringType())` registers the function as a Spark UDF so it runs in parallel across all executor threads. Only `event_type == 'COMMENT'` events with non-null text enter the stream. Results are written to `ANALYTICS.COMMENT_SENTIMENT` with a per-batch distribution summary printed for monitoring.
 
 ---
 
-## For the Room (Non-Technical)
-
-Imagine Instagram, TikTok, or Twitter. Every time you tap a heart, leave a comment, or share a post — something happens on the other side of the screen. A message gets sent to a computer saying "user 42 just liked post 99." In this phase, we built everything that happens after that tap — the entire invisible machinery.
+## For the Room — Plain-Language Walkthrough
 
 ---
 
-**The simulator is the social media app.**
+### Setup (`setup.sql`) — Building the Warehouse Before the Data Arrives
 
-We don't have real users, so we built a robot that pretends to be 100 of them. The robot runs non-stop, sending 1,000 fake events per minute — likes, comments, shares, video views, follows. Once in a while, it makes one post go viral by sending 600 likes in 36 seconds. That triggers our detection system.
+Before a drop of data flows, the filing cabinet needs to be set up. This SQL file creates the entire database structure: three separate storage layers — one for raw data exactly as it arrived, one for cleaned and enriched data, and one for the finished summaries that dashboards read. Creating the structure first means every incoming event has somewhere to go immediately. Think of it like setting up a sorting office with labelled trays before the post van arrives.
 
----
+### The Simulator — Playing the Role of a Social Media App
 
-**Kafka is the pipeline.**
+We don't have 100,000 real users, so we built a robot to play all of them. The simulator runs continuously, sending 1,000 fake events per minute to Kafka — likes, comments, shares, video views, follows, and the occasional new post. Every few seconds it also picks one post and floods it with 600 likes in rapid succession, deliberately trying to trigger the viral detection system. Without the simulator, the rest of the platform has nothing to process. With it running, the whole system behaves as if it's attached to a live social network.
 
-Think of it as a very fast motorway with three lanes. Every event (like, comment, share) gets on the motorway. Six different destinations (our Spark jobs) are all watching the motorway simultaneously — each one picks up the events it cares about. The motorway never gets full, never drops messages, and if one destination goes offline, the messages wait for it.
+### Kafka Topic Setup — Preparing the Pipeline
 
----
+Before any data can flow through Kafka, the topic needs to exist. This script creates `social-events` with three parallel lanes (partitions). Why three? Because we have six Spark jobs consuming the same topic, and distributing the load across multiple lanes means no single lane becomes a bottleneck. It's like opening three checkout queues at a supermarket instead of one.
 
-**The six Spark jobs are the analysts.**
+### Validation Consumer — Checking the Plumbing Works
 
-Each one is watching the Kafka motorway for something specific:
+Before running the full pipeline, this script lets you peek into Kafka and confirm events are arriving in the right shape and the right proportions. It counts events by type and prints the running tally every 100 messages. If LIKEs aren't showing up, or if the ratio looks wrong, you catch it here — before it silently corrupts the downstream analytics.
 
-- **Job 1 (s4):** Catches every single event and stores it in a "raw archive." Nothing is thrown away.
-- **Job 2 (s6):** Takes each event and looks up extra information — "this like came from user 42, who has 12,000 followers and is from Brazil." Stores the enriched version.
-- **Job 3 (s7):** Counts hashtags. Every minute it knows the top trending hashtags — like Twitter's trending list, but rebuilt from scratch.
-- **Job 4 (s8):** Watches for posts going viral. The moment any post gets more than 500 likes in 5 minutes, it fires an alert.
-- **Job 5 (s9):** Scores every user based on how engaging their activity is. Liking something is worth 1 point. Commenting is worth 3. Sharing is worth 5. Every 15 minutes it publishes a leaderboard.
-- **Job 6 (s10):** Reads every comment and decides if it's positive, neutral, or negative — like a mood detector for the platform.
+### Shared Utilities (`utils.py`) — One Place for Shared Settings
 
----
+All six Spark jobs need the same three things: the Snowflake connection details, the expected shape of an incoming event, and a function to deal with a subtle data conversion bug. Rather than duplicating these across six files, they live here and are imported. One change in one place applies everywhere. The bug it solves is worth explaining: when Spark converts its internal data format to Python's Pandas format, empty number fields don't become "empty" — they become a special float value called `nan` that looks like a number but isn't. Snowflake refuses to store it. The helper function catches this and converts it to a proper null before writing.
 
-**Snowflake is the organised filing cabinet.**
+### Step 4 — Catching Every Event (Raw Ingestion)
 
-Three drawers:
-1. **RAW** — everything, as it arrived, no changes. Like a security camera recording. If anything goes wrong, you can go back and see exactly what happened.
-2. **CURATED** — clean, enriched data. Like the security footage after someone has tagged each person in it.
-3. **ANALYTICS** — the summaries. The four final tables that answer the actual business questions: what's trending? which post went viral? who's the top influencer this hour? what's the mood?
+The first Spark job is the gatekeeper. It reads every event from Kafka and asks: is this event valid? Does it have an ID? Is the event type one we recognise? For events involving a post — likes, comments, shares — does it say which post? Events that pass all checks are marked valid. Events that fail are marked invalid, and a copy is saved locally for investigation. But critically — nothing is thrown away. Both valid and invalid events are written to the raw database layer. This is the most important design decision of the whole platform: the raw archive is a complete, unchangeable record of exactly what happened, exactly as it arrived.
 
----
+### Step 6 — Adding Context to the Events (Enrichment)
 
-**Tableau is the window into all of this.**
+A raw event might say "user U0023 liked post P0104." That's useful, but a dashboard wants to know: "A regular user with 450 followers liked a video post." Step 6 does this enrichment. At startup it loads the user table and post table into memory — once, not on every event — then for each incoming event it looks up the user and post details and attaches them. The enriched version, now with usernames, follower counts, and content types, is written to the curated layer. This is the "value-added" version of the data.
 
-The dashboards connect directly to the ANALYTICS tables. Every time a manager refreshes the screen, they're seeing data that's at most 30 seconds old. Not a report someone made yesterday — live data, right now.
+### Step 7 — The Trending Hashtags Board
 
----
+This is the real-time equivalent of Twitter's trending topics. Every event that carries hashtags is processed by this job. A post with three hashtags produces three entries — one per hashtag. Spark counts how many times each hashtag has been used in the last 1 minute, last 5 minutes, and last 15 minutes, simultaneously. All three counts are written to the same Snowflake table. The Tableau dashboard reads this table and shows a constantly updating list of what the platform is talking about right now, at three different levels of recency.
 
-**The headline of this phase:**
+### Step 8 — Spotting the Viral Moment
 
-We built in one laptop what a social media company's data team operates in a server room. The concepts, the architecture, and the code patterns are identical — ours just run locally instead of on a hundred servers. If you replaced `localhost:9092` with a real Kafka cluster address, and `local[*]` with a real Spark cluster, this would be production-ready.
+Every 30 seconds, this job asks: has any post received more than 500 likes in the last 5 minutes? If yes — that post is going viral. The moment the threshold is crossed, an alert fires and the post is recorded in the `VIRAL_POSTS` table. The simulator deliberately triggers this every 60 seconds by sending 600 likes to the same post in quick succession, so you can watch the detection work in real time. The engineering subtlety: the threshold check must happen after counting, not before — you need to watch all posts to know which ones cross 500, not just the ones that already have.
+
+### Step 9 — Ranking the Most Engaged Users
+
+Not all activity is equal. Clicking a like takes one second of thought. Writing a comment takes effort. Sharing something means you're endorsing it publicly. Step 9 scores every user's activity every 15 minutes using a weighted system: likes are worth 1 point, follows 2, comments 3, shares 5. At the end of each 15-minute window, every user has an engagement score and a rank. The result is a leaderboard — who was the most influential user on the platform in the last 15 minutes? The Tableau dashboard shows this updating in near-real-time.
+
+### Step 10 — Reading the Mood
+
+Every comment that comes through is classified: is it positive, negative, or neutral? The classification is done with a keyword list — words like "amazing" and "love" trigger positive, words like "terrible" and "awful" trigger negative, everything else is neutral. The checking order matters: negative keywords are checked first, so a comment like "not great" doesn't accidentally get labelled positive because it contains the word "great." Results flow into a Snowflake table that a dashboard can aggregate — for instance, showing that a particular viral post has an unusually negative comment sentiment, suggesting the virality might be controversy rather than enthusiasm.

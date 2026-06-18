@@ -5,12 +5,11 @@ import snowflake.connector
 import os
 from utils import SNOWFLAKE_CONFIG, EVENT_SCHEMA as schema
 
-VIRAL_THRESHOLD = 500  # likes within 5 minutes
+VIRAL_THRESHOLD = 500
 
 BASE_DIR   = os.path.dirname(__file__)
 CHECKPOINT = os.path.join(BASE_DIR, 'checkpoints', 's8_checkpoint')
 
-# ── SPARK SESSION ─────────────────────────────────────────────────────────────
 spark = SparkSession.builder \
     .appName('S8 - Viral Post Detection') \
     .master('local[*]') \
@@ -22,7 +21,6 @@ spark.sparkContext.setLogLevel('WARN')
 _log4j = spark.sparkContext._jvm.org.apache.log4j
 _log4j.Logger.getLogger('org.apache.spark.sql.kafka010.KafkaDataConsumer').setLevel(_log4j.Level.ERROR)
 
-# ── AGGREGATE: LIKE counts per post per 5-minute window ──────────────────────
 raw_stream = spark.readStream \
     .format('kafka') \
     .option('kafka.bootstrap.servers', 'localhost:9092') \
@@ -39,10 +37,6 @@ stream_df = (
     .withWatermark('ts', '5 minutes')
 )
 
-# Aggregation counts ALL posts — not just viral ones. Spark must track every
-# post's like count in window state to know the moment any of them cross 500.
-# Filtering before the aggregation would only count events for already-viral
-# posts, making detection impossible.
 like_counts = (
     stream_df
     .filter(col('event_type') == 'LIKE')
@@ -50,18 +44,12 @@ like_counts = (
     .groupBy(window(col('ts'), '5 minutes'), col('post_id'))
     .agg(count('*').alias('like_count'))
 )
-# outputMode('update'): as a post's like count grows, Spark re-emits that row
-# with the updated count. Each re-emission triggers detect_and_write, which
-# applies the threshold filter — so only crossings at or above 500 write to
-# Snowflake. The viral_burst() in the simulator (150 likes in ~1.5s) is what
-# reliably triggers this threshold in the demo.
 
 
 def detect_and_write(batch_df, batch_id):
     if batch_df.isEmpty():
         return
 
-    # threshold filter happens here, not before writeStream — see comment above
     viral_df = batch_df.filter(col('like_count') >= VIRAL_THRESHOLD)
     if viral_df.isEmpty():
         return

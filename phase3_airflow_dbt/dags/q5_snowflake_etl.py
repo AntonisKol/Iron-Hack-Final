@@ -7,7 +7,6 @@ import os
 
 load_dotenv('/Users/mpe/Desktop/Iron Hack/CAPSTONE /Final project/.env')
 
-# read credentials from .env file
 SNOWFLAKE_CONFIG = {
     'account': os.getenv('SNOWFLAKE_ACCOUNT'),
     'user': os.getenv('SNOWFLAKE_USER'),
@@ -32,7 +31,6 @@ with DAG(
     catchup=False,
 ) as dag:
 
-    # task 1: confirm source data exists in Snowflake
     def check_source_data():
         conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
         cursor = conn.cursor()
@@ -46,7 +44,6 @@ with DAG(
         python_callable=check_source_data,
     )
 
-        # task 2: run transformation SQL — creates a fraud summary table by country
     def run_transformation():
         conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
         cursor = conn.cursor()
@@ -71,8 +68,6 @@ with DAG(
         python_callable=run_transformation,
     )
 
-
-    # task 3: generate row count report from the transformed table
     def row_count_report():
         conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
         cursor = conn.cursor()

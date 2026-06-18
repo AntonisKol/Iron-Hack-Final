@@ -1,3 +1,4 @@
+-- Q25: Executive fraud report — CTEs, CASE, window functions, aggregations
 WITH transaction_kpis AS (
     SELECT COUNT(*) AS total_transactions,
         ROUND(SUM(transaction_amount), 2) AS total_transaction_value,
@@ -40,7 +41,7 @@ SELECT t.total_transactions,
     t.avg_transaction_amount,
     f.total_fraud_cases,
     f.fraud_percentage,
-    f.top_fraud_type,
+    f.top_fraud_type, -- 
     r.highest_risk_country,
     r.highest_risk_merchant,
     r.highest_risk_payment,
@@ -52,6 +53,7 @@ FROM transaction_kpis t,
     risk_kpis r,
     customer_kpis c;
 
+-- Q26: Create view VW_HIGH_RISK_TRANSACTIONS
 CREATE OR REPLACE VIEW VW_HIGH_RISK_TRANSACTIONS AS
 SELECT transaction_id,
     customer_id,
@@ -69,6 +71,7 @@ WHERE is_international = 1
 
 SELECT COUNT(*) FROM VW_HIGH_RISK_TRANSACTIONS;
 
+-- Q27: Create materialized view MV_DAILY_FRAUD_REPORT for daily fraud reporting
 CREATE OR REPLACE MATERIALIZED VIEW MV_DAILY_FRAUD_REPORT AS
 SELECT transaction_date,
     COUNT(*) AS total_transactions,
@@ -80,6 +83,7 @@ GROUP BY transaction_date;
 
 SELECT * FROM MV_DAILY_FRAUD_REPORT LIMIT 10;
 
+-- Q28: Detect suspicious customers using SQL
 SELECT customer_id,
     ROUND(AVG(transaction_amount), 2) AS avg_transaction_amount,
     ROUND(AVG(credit_score), 2) AS avg_credit_score,

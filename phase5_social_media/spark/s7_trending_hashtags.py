@@ -1,3 +1,4 @@
+# Step 7: Trending Hashtag Analytics
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     col, explode, window, count, current_timestamp, lit, from_json

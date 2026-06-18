@@ -1,3 +1,4 @@
+# Steps 2 & 3: Social Media Event Simulator
 import json
 import os
 import random

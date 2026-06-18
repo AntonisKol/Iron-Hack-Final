@@ -1,3 +1,4 @@
+# Q11: Top Customers Per City — Spark Batch
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import sum as _sum, col, rank, desc
 from pyspark.sql.window import Window

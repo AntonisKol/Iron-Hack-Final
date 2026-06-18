@@ -1,3 +1,4 @@
+# Step 3: Kafka Topic Setup
 from kafka.admin import KafkaAdminClient, NewTopic
 from kafka.errors import TopicAlreadyExistsError
 

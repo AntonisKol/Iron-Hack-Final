@@ -1,3 +1,4 @@
+# Q12: UDF Risk Classifier — Spark Batch
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import udf, col
 from pyspark.sql.types import StringType

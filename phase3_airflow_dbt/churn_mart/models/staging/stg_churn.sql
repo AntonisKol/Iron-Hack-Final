@@ -1,3 +1,4 @@
+-- Q7: Customer Churn Data Mart — Staging Layer
 with source as (
     select *
     from {{ source('churn_raw', 'RAW_CHURN') }}

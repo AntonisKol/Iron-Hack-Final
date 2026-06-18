@@ -1,3 +1,4 @@
+# Q9: Stateful Kafka Streams — KTable Pattern
 from kafka import KafkaConsumer, KafkaProducer
 from kafka.errors import KafkaError
 import json

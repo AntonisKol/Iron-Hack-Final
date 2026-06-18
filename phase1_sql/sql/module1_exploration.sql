@@ -1,12 +1,14 @@
 USE DATABASE FRAUD_DB;
 USE SCHEMA FRAUD_SCHEMA;
 
+-- Q1: Aggregate metrics — total transactions, customers, fraud count and percentage
 SELECT COUNT(*) AS total_transactions,
     COUNT(DISTINCT customer_id) AS total_customers,
     SUM(is_fraud) AS total_fraud_transactions,
     ROUND(SUM(is_fraud) / COUNT(*) * 100, 2) AS fraud_percentage
 FROM BANK_TRANSACTIONS;
 
+-- Q2: Top 10 countries by transaction volume
 SELECT country,
     COUNT(*) AS transaction_count
 FROM BANK_TRANSACTIONS
@@ -14,6 +16,7 @@ GROUP BY country
 ORDER BY transaction_count DESC
 LIMIT 10;
 
+-- Q3: Top 10 cities by transaction value
 SELECT city,
     ROUND(SUM(transaction_amount), 2) AS total_value
 FROM BANK_TRANSACTIONS
@@ -21,6 +24,7 @@ GROUP BY city
 ORDER BY total_value DESC
 LIMIT 10;
 
+-- Q4: Data profiling report — distinct values and null count per column
 SELECT 'transaction_id' AS column_name,
     COUNT(DISTINCT transaction_id) AS distinct_values,
     SUM(CASE WHEN transaction_id IS NULL THEN 1 ELSE 0 END) AS null_count
@@ -97,6 +101,7 @@ SELECT 'fraud_type',
 FROM BANK_TRANSACTIONS
 ORDER BY column_name;
 
+-- Q5: Transaction distribution by payment method, device type, merchant category
 SELECT 'payment_method' AS dimension,
     payment_method AS value,
     COUNT(*) AS txn_count,

@@ -1,3 +1,4 @@
+# Step 9: Influencer Ranking
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     col, window, count, sum as _sum, when, lit, from_json

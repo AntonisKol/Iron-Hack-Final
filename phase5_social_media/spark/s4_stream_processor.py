@@ -1,3 +1,4 @@
+# Steps 4 & 5: Real-Time Processing — RAW Ingestion & Validation
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, current_timestamp, lit, from_json
 from datetime import datetime

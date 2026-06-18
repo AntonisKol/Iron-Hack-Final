@@ -1,3 +1,4 @@
+# Step 3: Kafka Ingestion Validator
 from kafka import KafkaConsumer
 import json
 

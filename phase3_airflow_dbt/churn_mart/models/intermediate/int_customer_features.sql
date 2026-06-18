@@ -1,3 +1,4 @@
+-- Q7: Customer Churn Data Mart — Intermediate Layer
 with stg as (
     select *
     from {{ ref('stg_churn') }}

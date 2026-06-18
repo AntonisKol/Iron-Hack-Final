@@ -1,3 +1,4 @@
+# Q19: Late-Data Handling with Upsert — Spark Structured Streaming
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import avg, col, count, window
 from pyspark.sql.types import StructType, StringType, DoubleType, TimestampType

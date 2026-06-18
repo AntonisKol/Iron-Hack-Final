@@ -1,3 +1,4 @@
+# Step 6: Data Enrichment — CURATED Layer
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, from_json
 from datetime import datetime

@@ -1,3 +1,4 @@
+-- Q7: Customer Churn Data Mart — Mart Layer
 with fct as (
     select *
     from {{ ref('fct_churn') }}

@@ -1,3 +1,4 @@
+# Shared Utilities: Snowflake Config, Event Schema, nan_to_none
 from pyspark.sql.types import StructType, StringType, FloatType, ArrayType
 from dotenv import load_dotenv
 import math

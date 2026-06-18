@@ -1,6 +1,7 @@
 USE DATABASE FRAUD_DB;
 USE SCHEMA FRAUD_SCHEMA;
 
+-- Q16: Anomaly detection — transactions exceeding avg + 3 × stddev
 SELECT transaction_id,
     customer_id,
     transaction_amount,
@@ -18,6 +19,7 @@ WHERE transaction_amount > (
     )
 ORDER BY transaction_amount DESC;
 
+-- Q17: Customers with more than 3 failed attempts and fraud = 1
 SELECT customer_id,
     MAX(failed_attempts) AS max_failed_attempts,
     COUNT(*) AS txn_count,
@@ -28,6 +30,7 @@ WHERE is_fraud = 1
 GROUP BY customer_id
 ORDER BY max_failed_attempts DESC;
 
+-- Q18: PIN change correlation with fraud probability
 SELECT CASE
         WHEN pin_changed_recently = 1 THEN 'PIN Changed Recently'
         ELSE 'PIN Not Changed'
@@ -39,6 +42,7 @@ FROM BANK_TRANSACTIONS
 GROUP BY pin_status
 ORDER BY fraud_rate DESC;
 
+-- Q19: Fraud rate — international vs domestic transactions
 SELECT CASE
         WHEN is_international = 1 THEN 'International'
         ELSE 'Domestic'
@@ -50,6 +54,7 @@ FROM BANK_TRANSACTIONS
 GROUP BY transaction_type
 ORDER BY fraud_rate DESC;
 
+-- Q20: Multi-factor risk ranking — international, night, failed attempts > 2
 SELECT
     customer_id,
     COUNT(*)                                    AS txn_count,

@@ -2,24 +2,13 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     col, window, count, sum as _sum, when, lit, from_json
 )
-from pyspark.sql.types import StructType, StringType, ArrayType, FloatType
-from dotenv import load_dotenv
 from datetime import datetime
 import snowflake.connector
 import os
+from utils import SNOWFLAKE_CONFIG, EVENT_SCHEMA as schema
 
 # Step 9: engagement scoring per user in 15-minute windows → ANALYTICS.INFLUENCER_RANKING
 # Engagement score = likes×1 + comments×3 + shares×5 + video_views×0.5 + follows×2
-
-load_dotenv('/Users/mpe/Desktop/Iron Hack/CAPSTONE /Final project/.env')
-
-SNOWFLAKE_CONFIG = {
-    'account':   os.getenv('SNOWFLAKE_ACCOUNT'),
-    'user':      os.getenv('SNOWFLAKE_USER'),
-    'password':  os.getenv('SNOWFLAKE_PASSWORD'),
-    'database':  'SOCIAL_MEDIA_DB',
-    'warehouse': os.getenv('SNOWFLAKE_WAREHOUSE'),
-}
 
 BASE_DIR   = os.path.dirname(__file__)
 CHECKPOINT = os.path.join(BASE_DIR, 'checkpoints', 's9_checkpoint')
@@ -35,19 +24,6 @@ spark = SparkSession.builder \
 spark.sparkContext.setLogLevel('WARN')
 _log4j = spark.sparkContext._jvm.org.apache.log4j
 _log4j.Logger.getLogger('org.apache.spark.sql.kafka010.KafkaDataConsumer').setLevel(_log4j.Level.ERROR)
-
-schema = StructType() \
-    .add('event_id',           StringType()) \
-    .add('event_type',         StringType()) \
-    .add('user_id',            StringType()) \
-    .add('post_id',            StringType()) \
-    .add('target_user_id',     StringType()) \
-    .add('hashtags',           ArrayType(StringType())) \
-    .add('comment_text',       StringType()) \
-    .add('content_type',       StringType()) \
-    .add('video_duration_sec', FloatType()) \
-    .add('watch_time_sec',     FloatType()) \
-    .add('timestamp',          StringType())
 
 # ── STREAM + WEIGHTED AGGREGATION ─────────────────────────────────────────────
 # Assign numeric weights to event types, then sum per user per 15-minute window.

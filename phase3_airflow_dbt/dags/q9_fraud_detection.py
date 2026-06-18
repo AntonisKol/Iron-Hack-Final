@@ -3,14 +3,11 @@ from airflow.providers.standard.operators.python import PythonOperator
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import snowflake.connector
-import smtplib
-from email.mime.text import MIMEText
 import os
+from dag_utils import send_failure_email
 
-# load credentials from .env — never hardcode passwords
 load_dotenv('/Users/mpe/Desktop/Iron Hack/CAPSTONE /Final project/.env')
 
-# Snowflake connection config read from environment variables
 SNOWFLAKE_CONFIG = {
     'account': os.getenv('SNOWFLAKE_ACCOUNT'),
     'user': os.getenv('SNOWFLAKE_USER'),
@@ -25,21 +22,6 @@ default_args = {
     'retries': 1,
     'retry_delay': timedelta(minutes=5),
 }
-
-# ── STEP 5: FAILURE NOTIFICATION ─────────────────────────────────────────────
-# called automatically by on_failure_callback when any task fails
-# builds an email and sends it via GMX SMTP
-def send_failure_email(context):
-    task_id = context['task_instance'].task_id
-    dag_id = context['task_instance'].dag_id
-    msg = MIMEText(f'Task {task_id} in DAG {dag_id} has failed.')
-    msg['Subject'] = f'Airflow Failure: {dag_id} - {task_id}'
-    msg['From'] = os.getenv('EMAIL_ADDRESS')
-    msg['To'] = os.getenv('EMAIL_ADDRESS')
-    with smtplib.SMTP('mail.gmx.net', 587) as server:
-        server.starttls()
-        server.login(os.getenv('EMAIL_ADDRESS'), os.getenv('GMX_PASSWORD'))
-        server.send_message(msg)
 
 with DAG(
     dag_id='fraud_detection',

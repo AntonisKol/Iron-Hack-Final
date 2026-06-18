@@ -96,7 +96,8 @@ SELECT transaction_date,
     -- fraud % per day
     ROUND(SUM(transaction_amount), 2) AS total_amount -- total value per day
 FROM BANK_TRANSACTIONS
-GROUP BY transaction_date -- verify it works
+GROUP BY transaction_date;
+-- verify it works
 SELECT *
 FROM MV_DAILY_FRAUD_REPORT
 LIMIT 10;

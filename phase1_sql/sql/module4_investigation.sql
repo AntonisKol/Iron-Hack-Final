@@ -25,7 +25,8 @@ SELECT customer_id,
     -- total transactions
     SUM(is_fraud) AS fraud_count -- confirmed fraud cases
 FROM BANK_TRANSACTIONS
-WHERE is_fraud = 1 -- more than 3 failed attempts
+WHERE is_fraud = 1
+    AND failed_attempts > 3 -- both conditions from the task requirement
 GROUP BY customer_id
 ORDER BY max_failed_attempts DESC;
 -- Q18: Does recent PIN change increase fraud probability?

@@ -84,7 +84,7 @@ CREATE TABLE IF NOT EXISTS CURATED.CURATED_EVENTS (
     ingested_at TIMESTAMP
 );
 -- ── ANALYTICS LAYER ───────────────────────────────────────────────────────────
--- Pre-aggregated results ready for Power BI.
+-- Pre-aggregated results ready for Tableau / BI dashboards.
 CREATE SCHEMA IF NOT EXISTS ANALYTICS;
 -- top hashtags per 1-minute, 5-minute, and 15-minute windows
 CREATE TABLE IF NOT EXISTS ANALYTICS.TRENDING_HASHTAGS (

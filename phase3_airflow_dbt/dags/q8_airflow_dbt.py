@@ -2,12 +2,8 @@ from airflow import DAG
 from airflow.providers.standard.operators.bash import BashOperator
 from airflow.providers.standard.operators.python import PythonOperator
 from datetime import datetime, timedelta
-import smtplib
-from email.mime.text import MIMEText
-from dotenv import load_dotenv
 import os
-
-load_dotenv('/Users/mpe/Desktop/Iron Hack/CAPSTONE /Final project/.env')
+from dag_utils import send_failure_email
 
 # path to the dbt project — BashOperator needs to run commands from here
 DBT_PROJECT_DIR = '/Users/mpe/Desktop/Iron Hack/CAPSTONE /Final project/phase3_airflow_dbt/churn_mart'
@@ -17,19 +13,6 @@ default_args = {
     'retries': 1,
     'retry_delay': timedelta(minutes=5),
 }
-
-def send_failure_email(context):
-    task_id = context['task_instance'].task_id
-    dag_id = context['task_instance'].dag_id
-    msg = MIMEText(f'Task {task_id} in DAG {dag_id} has failed.')
-    msg['Subject'] = f'Airflow Failure: {dag_id} - {task_id}'
-    msg['From'] = os.getenv('EMAIL_ADDRESS')
-    msg['To'] = os.getenv('EMAIL_ADDRESS')
-    with smtplib.SMTP('mail.gmx.net', 587) as server:
-        server.starttls()
-        server.login(os.getenv('EMAIL_ADDRESS'), os.getenv('GMX_PASSWORD'))
-        server.send_message(msg)
-    print('Failure email sent')
 
 with DAG(
     dag_id='airflow_dbt',

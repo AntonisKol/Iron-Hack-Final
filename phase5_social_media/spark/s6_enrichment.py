@@ -1,39 +1,15 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, from_json
-from pyspark.sql.types import (
-    StructType, StringType, FloatType, ArrayType
-)
-from dotenv import load_dotenv
 from datetime import datetime
 import snowflake.connector
 import json
-import math
 import os
+from utils import SNOWFLAKE_CONFIG, EVENT_SCHEMA as schema, nan_to_none
 
 # Step 6: join streaming events with USER_DIM and POST_DIM → write CURATED_EVENTS
 
-load_dotenv('/Users/mpe/Desktop/Iron Hack/CAPSTONE /Final project/.env')
-
-SNOWFLAKE_CONFIG = {
-    'account':   os.getenv('SNOWFLAKE_ACCOUNT'),
-    'user':      os.getenv('SNOWFLAKE_USER'),
-    'password':  os.getenv('SNOWFLAKE_PASSWORD'),
-    'database':  'SOCIAL_MEDIA_DB',
-    'warehouse': os.getenv('SNOWFLAKE_WAREHOUSE'),
-}
-
 BASE_DIR   = os.path.dirname(__file__)
 CHECKPOINT = os.path.join(BASE_DIR, 'checkpoints', 's6_checkpoint')
-
-def nan_to_none(v):
-    if v is None:
-        return None
-    try:
-        if math.isnan(float(v)):
-            return None
-    except (TypeError, ValueError):
-        pass
-    return v
 
 
 # ── LOAD DIMENSION TABLES INTO MEMORY ─────────────────────────────────────────
@@ -78,19 +54,6 @@ spark = SparkSession.builder \
 spark.sparkContext.setLogLevel('WARN')
 _log4j = spark.sparkContext._jvm.org.apache.log4j
 _log4j.Logger.getLogger('org.apache.spark.sql.kafka010.KafkaDataConsumer').setLevel(_log4j.Level.ERROR)
-
-schema = StructType() \
-    .add('event_id',           StringType()) \
-    .add('event_type',         StringType()) \
-    .add('user_id',            StringType()) \
-    .add('post_id',            StringType()) \
-    .add('target_user_id',     StringType()) \
-    .add('hashtags',           ArrayType(StringType())) \
-    .add('comment_text',       StringType()) \
-    .add('content_type',       StringType()) \
-    .add('video_duration_sec', FloatType()) \
-    .add('watch_time_sec',     FloatType()) \
-    .add('timestamp',          StringType())
 
 # Design note: this job reads directly from Kafka, so it enriches all events
 # including those that failed validation in s4. In a stricter production design

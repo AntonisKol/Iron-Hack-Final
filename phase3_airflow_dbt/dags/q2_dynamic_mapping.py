@@ -12,7 +12,7 @@ with DAG(
     dag_id='dynamic_mapping',
     default_args=default_args,
     description='Q2 - Dynamic Task Mapping',
-    schedule='0 9 * * *',
+    schedule='0 8 * * *',
     start_date=datetime(2026, 1, 1),
     catchup=False,
 ) as dag:

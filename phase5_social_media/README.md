@@ -56,7 +56,7 @@
 └────────────────────────┬────────────────────────────────────────────┘
                          │ visualised in
                          ▼
-                    Power BI Dashboards
+                    Tableau Dashboards
 ```
 
 ---
@@ -171,7 +171,7 @@ Comments and shares are weighted higher because they indicate active intent, not
 | 8    | Viral Detection           | `spark/s8_viral_detection.py`                                                | Done   |
 | 9    | Influencer Ranking        | `spark/s9_influencer_ranking.py`                                             | Done   |
 | 10   | Sentiment Analysis        | `spark/s10_sentiment.py`                                                     | Done   |
-| 11   | Dashboards                | Power BI (connect to Snowflake ANALYTICS schema)                             | —      |
+| 11   | Dashboards                | Tableau Desktop (connect to Snowflake ANALYTICS schema)                      | Done   |
 
 ---
 

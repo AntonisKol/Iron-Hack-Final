@@ -1,26 +1,12 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, current_timestamp, lit, from_json
-from pyspark.sql.types import (
-    StructType, StringType, FloatType, TimestampType, ArrayType
-)
-from dotenv import load_dotenv
 from datetime import datetime
 import snowflake.connector
 import json
-import math
 import os
+from utils import SNOWFLAKE_CONFIG, EVENT_SCHEMA as schema, nan_to_none
 
 # Steps 4 + 5: consume events, validate, write to Snowflake RAW_EVENTS
-
-load_dotenv('/Users/mpe/Desktop/Iron Hack/CAPSTONE /Final project/.env')
-
-SNOWFLAKE_CONFIG = {
-    'account':   os.getenv('SNOWFLAKE_ACCOUNT'),
-    'user':      os.getenv('SNOWFLAKE_USER'),
-    'password':  os.getenv('SNOWFLAKE_PASSWORD'),
-    'database':  'SOCIAL_MEDIA_DB',
-    'warehouse': os.getenv('SNOWFLAKE_WAREHOUSE'),
-}
 
 VALID_EVENT_TYPES = {
     'POST_CREATED', 'LIKE', 'COMMENT', 'SHARE',
@@ -45,21 +31,6 @@ spark.sparkContext.setLogLevel('WARN')
 _log4j = spark.sparkContext._jvm.org.apache.log4j
 _log4j.Logger.getLogger('org.apache.spark.sql.kafka010.KafkaDataConsumer').setLevel(_log4j.Level.ERROR)
 
-# ── SCHEMA ────────────────────────────────────────────────────────────────────
-# explicit schema required for readStream — must match what the simulator writes
-schema = StructType() \
-    .add('event_id',           StringType()) \
-    .add('event_type',         StringType()) \
-    .add('user_id',            StringType()) \
-    .add('post_id',            StringType()) \
-    .add('target_user_id',     StringType()) \
-    .add('hashtags',           ArrayType(StringType())) \
-    .add('comment_text',       StringType()) \
-    .add('content_type',       StringType()) \
-    .add('video_duration_sec', FloatType()) \
-    .add('watch_time_sec',     FloatType()) \
-    .add('timestamp',          StringType())   # stored as string, cast to timestamp in SQL
-
 # ── READ STREAM ───────────────────────────────────────────────────────────────
 raw_stream = spark.readStream \
     .format('kafka') \
@@ -72,18 +43,6 @@ raw_stream = spark.readStream \
 stream_df = raw_stream.select(
     from_json(col('value').cast('string'), schema).alias('d')
 ).select('d.*')
-
-def nan_to_none(v):
-    """pandas fills missing float columns with NaN; Snowflake rejects 'NAN' as a literal."""
-    if v is None:
-        return None
-    try:
-        if math.isnan(float(v)):
-            return None
-    except (TypeError, ValueError):
-        pass
-    return v
-
 
 # ── VALIDATION ────────────────────────────────────────────────────────────────
 # Step 4: data quality checks — mark invalid records instead of dropping them.
@@ -118,7 +77,8 @@ def write_to_raw(batch_df, batch_id):
         row_dict = row.to_dict()
         errors   = validate_row(row_dict)
         is_valid = len(errors) == 0
-        hashtags = json.dumps(row_dict.get('hashtags') or [])
+        raw_hashtags = nan_to_none(row_dict.get('hashtags'))
+        hashtags = json.dumps(list(raw_hashtags) if raw_hashtags is not None else [])
 
         if is_valid:
             valid_cnt += 1

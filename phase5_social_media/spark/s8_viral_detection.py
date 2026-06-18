@@ -1,23 +1,12 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, window, count, lit, from_json
-from pyspark.sql.types import StructType, StringType, ArrayType, FloatType
-from dotenv import load_dotenv
 from datetime import datetime
 import snowflake.connector
 import os
+from utils import SNOWFLAKE_CONFIG, EVENT_SCHEMA as schema
 
 # Step 8: detect posts with >500 LIKE events in a 5-minute window → ANALYTICS.VIRAL_POSTS
 # alert is printed to console; threshold and window size are configurable constants
-
-load_dotenv('/Users/mpe/Desktop/Iron Hack/CAPSTONE /Final project/.env')
-
-SNOWFLAKE_CONFIG = {
-    'account':   os.getenv('SNOWFLAKE_ACCOUNT'),
-    'user':      os.getenv('SNOWFLAKE_USER'),
-    'password':  os.getenv('SNOWFLAKE_PASSWORD'),
-    'database':  'SOCIAL_MEDIA_DB',
-    'warehouse': os.getenv('SNOWFLAKE_WAREHOUSE'),
-}
 
 VIRAL_THRESHOLD = 500  # likes within 5 minutes
 
@@ -35,19 +24,6 @@ spark = SparkSession.builder \
 spark.sparkContext.setLogLevel('WARN')
 _log4j = spark.sparkContext._jvm.org.apache.log4j
 _log4j.Logger.getLogger('org.apache.spark.sql.kafka010.KafkaDataConsumer').setLevel(_log4j.Level.ERROR)
-
-schema = StructType() \
-    .add('event_id',           StringType()) \
-    .add('event_type',         StringType()) \
-    .add('user_id',            StringType()) \
-    .add('post_id',            StringType()) \
-    .add('target_user_id',     StringType()) \
-    .add('hashtags',           ArrayType(StringType())) \
-    .add('comment_text',       StringType()) \
-    .add('content_type',       StringType()) \
-    .add('video_duration_sec', FloatType()) \
-    .add('watch_time_sec',     FloatType()) \
-    .add('timestamp',          StringType())
 
 # ── AGGREGATE: LIKE counts per post per 5-minute window ──────────────────────
 raw_stream = spark.readStream \

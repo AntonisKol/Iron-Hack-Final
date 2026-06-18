@@ -1,33 +1,34 @@
+from kafka import KafkaProducer
 from datetime import datetime, timedelta
 import random
 import json
 import time
-import os
 
-INPUT_DIR = os.path.join(os.path.dirname(__file__), 'pageviews_input')
+TOPIC = 'page-views'
 PAGES = ['/home', '/products', '/checkout', '/about', '/contact']
 
+producer = KafkaProducer(
+    bootstrap_servers='localhost:9092',
+    value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+)
+
+print(f'Sending 30 page-view events to Kafka topic: {TOPIC}\n')
 now = datetime.utcnow()
-print(f'Writing page-view events to: {INPUT_DIR}\n')
 
 for i in range(30):
     # spread events across the last 10 minutes — some will fall in the
-    # current 5-min window, some in the previous one
+    # current 5-min window, some in the previous one (late-data scenario)
     minutes_ago = random.uniform(0, 10)
-    event_time = now - timedelta(minutes=minutes_ago)
-
+    event_time  = now - timedelta(minutes=minutes_ago)
     event = {
         'user_id':   f'U{random.randint(100, 999)}',
         'page':      random.choice(PAGES),
         'timestamp': event_time.strftime('%Y-%m-%dT%H:%M:%S'),
     }
-
-    # each event is written as its own JSON file — Spark picks it up in the next batch
-    filename = os.path.join(INPUT_DIR, f'event_{i:03d}_{int(time.time()*1000)}.json')
-    with open(filename, 'w') as f:
-        json.dump(event, f)
-
-    print(f"  {event['timestamp']}  {event['user_id']}  {event['page']}")
+    producer.send(TOPIC, value=event)
+    print(f'  [{i+1:02d}] {event["timestamp"]}  {event["user_id"]}  {event["page"]}')
     time.sleep(0.2)
 
-print('\nAll 30 events written.')
+producer.flush()
+producer.close()
+print('\nAll 30 events sent.')

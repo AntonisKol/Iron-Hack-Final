@@ -8,3 +8,5 @@ phase4_nifi_kafka_spark/data/
 phase4_nifi_kafka_spark/spark/output/
 phase4_nifi_kafka_spark/spark/pageviews_input/
 phase4_nifi_kafka_spark/spark/q19_sensor_input/
+phase5_social_media/data/
+phase5_social_media/spark/checkpoints/

@@ -1,0 +1,74 @@
+{
+  "description": "One sample payload for each of the 7 event types produced by event_simulator.py",
+  "note": "All events are published to Kafka topic 'social-events' and written to data/events/ as individual JSON files",
+
+  "POST_CREATED": {
+    "event_id": "a1b2c3d4-0001-0001-0001-000000000001",
+    "event_type": "POST_CREATED",
+    "user_id": "U0042",
+    "post_id": "P0137",
+    "content_type": "video",
+    "hashtags": ["#trending", "#viral", "#datascience"],
+    "timestamp": "2026-06-17T10:00:00"
+  },
+
+  "LIKE": {
+    "event_id": "a1b2c3d4-0002-0002-0002-000000000002",
+    "event_type": "LIKE",
+    "user_id": "U0071",
+    "post_id": "P0023",
+    "timestamp": "2026-06-17T10:00:01"
+  },
+
+  "COMMENT": {
+    "event_id": "a1b2c3d4-0003-0003-0003-000000000003",
+    "event_type": "COMMENT",
+    "user_id": "U0015",
+    "post_id": "P0088",
+    "comment_text": "This is incredible!",
+    "timestamp": "2026-06-17T10:00:02"
+  },
+
+  "SHARE": {
+    "event_id": "a1b2c3d4-0004-0004-0004-000000000004",
+    "event_type": "SHARE",
+    "user_id": "U0099",
+    "post_id": "P0011",
+    "timestamp": "2026-06-17T10:00:03"
+  },
+
+  "FOLLOW": {
+    "event_id": "a1b2c3d4-0005-0005-0005-000000000005",
+    "event_type": "FOLLOW",
+    "user_id": "U0033",
+    "target_user_id": "U0007",
+    "timestamp": "2026-06-17T10:00:04"
+  },
+
+  "VIDEO_VIEW": {
+    "event_id": "a1b2c3d4-0006-0006-0006-000000000006",
+    "event_type": "VIDEO_VIEW",
+    "user_id": "U0056",
+    "post_id": "P0204",
+    "video_duration_sec": 90.0,
+    "watch_time_sec": 67.3,
+    "timestamp": "2026-06-17T10:00:05"
+  },
+
+  "PROFILE_VISIT": {
+    "event_id": "a1b2c3d4-0007-0007-0007-000000000007",
+    "event_type": "PROFILE_VISIT",
+    "user_id": "U0081",
+    "target_user_id": "U0003",
+    "timestamp": "2026-06-17T10:00:06"
+  },
+
+  "VIRAL_BURST_example": {
+    "description": "During a viral burst, 150 LIKE events like this are sent to the same post_id within ~1.5 seconds",
+    "event_id": "a1b2c3d4-0008-0008-0008-000000000008",
+    "event_type": "LIKE",
+    "user_id": "U0044",
+    "post_id": "P0007",
+    "timestamp": "2026-06-17T10:02:00"
+  }
+}

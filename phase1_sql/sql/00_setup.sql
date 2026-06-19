@@ -1,4 +1,3 @@
-
 CREATE DATABASE IF NOT EXISTS FRAUD_DB;
 USE DATABASE FRAUD_DB;
 CREATE SCHEMA IF NOT EXISTS FRAUD_SCHEMA;
@@ -31,7 +30,6 @@ CREATE OR REPLACE TABLE BANK_TRANSACTIONS (
         is_fraud INT,
         fraud_type VARCHAR
     );
-
 CREATE OR REPLACE FILE FORMAT fraud_csv_format TYPE = 'CSV' FIELD_DELIMITER = ',' -- columns are comma-separated
     FIELD_OPTIONALLY_ENCLOSED_BY = '"' -- some values like "New York" are quoted
     NULL_IF = ('', 'NULL', 'null') -- treats empty cells and the word NULL as actual SQL NULL
@@ -43,6 +41,5 @@ CREATE OR REPLACE FILE FORMAT fraud_csv_format TYPE = 'CSV' FIELD_DELIMITER = ',
 CREATE OR REPLACE STAGE fraud_stage FILE_FORMAT = fraud_csv_format COMMENT = 'Internal stage for bank fraud CSV files';
 -- BLOCK 5: PUT (run via upload_to_stage.py)
 -- Uploads bank_fraud.csv from local machine to the stage.
-
 COPY INTO BANK_TRANSACTIONS
 FROM @fraud_stage / bank_fraud.csv FILE_FORMAT = (FORMAT_NAME = 'fraud_csv_format') ON_ERROR = 'CONTINUE';

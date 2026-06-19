@@ -1,7 +1,6 @@
--- fact table: one row per customer with churn outcome and key metrics
--- this is the CENTER of the star schema
--- it links to dim_customers and dim_services via customer_id
--- contains the numbers and the target variable (is_churned)
+-- Fact table: one row per customer with their churn outcome and key metrics.
+-- The center of the star schema — links to dim_customers and dim_services via customer_id.
+-- Contains the measurable numbers (charges, CLV, risk_score) and the target variable (is_churned).
 with int_customers as (
     select *
     from {{ ref('int_customer_features') }}

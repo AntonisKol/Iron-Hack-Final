@@ -1,6 +1,6 @@
--- dimension table: one row per customer with their service subscriptions
--- this answers WHAT — which services each customer is using
--- kept separate from dim_customers to follow star schema design principles
+-- Dimension table: one row per customer with their service subscriptions.
+-- Answers WHAT — phone, internet, and all add-on services each customer has.
+-- Kept separate from dim_customers so each dimension has a single responsibility.
 with int_customers as (
     select *
     from {{ ref('int_customer_features') }}

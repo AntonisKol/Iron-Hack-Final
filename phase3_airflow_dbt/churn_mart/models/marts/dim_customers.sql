@@ -1,6 +1,6 @@
--- dimension table: one row per customer with their profile information
--- this answers WHO — demographics and account details
--- built on top of the intermediate model which has clean data + calculated features
+-- Dimension table: one row per customer with their profile and account details.
+-- Answers WHO — demographics, contract type, payment method, and financials.
+-- Built from the intermediate model, which already has clean data and calculated features.
 with int_customers as (
     select *
     from {{ ref('int_customer_features') }}

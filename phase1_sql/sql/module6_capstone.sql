@@ -26,10 +26,11 @@ risk_kpis AS (
             ORDER BY SUM(is_fraud) DESC
         ) AS highest_risk_payment
     FROM BANK_TRANSACTIONS
-    GROUP BY country, merchant_category, payment_method
+    GROUP BY country,
+        merchant_category,
+        payment_method
     LIMIT 1
-),
-customer_kpis AS (
+), customer_kpis AS (
     SELECT ROUND(AVG(credit_score), 2) AS avg_credit_score_fraudsters,
         ROUND(AVG(account_balance), 2) AS avg_balance_fraudsters,
         ROUND(AVG(failed_attempts), 2) AS avg_failed_attempts_fraudsters
@@ -41,7 +42,8 @@ SELECT t.total_transactions,
     t.avg_transaction_amount,
     f.total_fraud_cases,
     f.fraud_percentage,
-    f.top_fraud_type, -- 
+    f.top_fraud_type,
+    -- 
     r.highest_risk_country,
     r.highest_risk_merchant,
     r.highest_risk_payment,
@@ -52,7 +54,6 @@ FROM transaction_kpis t,
     fraud_kpis f,
     risk_kpis r,
     customer_kpis c;
-
 -- Q26: Create view VW_HIGH_RISK_TRANSACTIONS
 CREATE OR REPLACE VIEW VW_HIGH_RISK_TRANSACTIONS AS
 SELECT transaction_id,
@@ -68,9 +69,8 @@ FROM BANK_TRANSACTIONS
 WHERE is_international = 1
     AND is_night_transaction = 1
     AND failed_attempts > 2;
-
-SELECT COUNT(*) FROM VW_HIGH_RISK_TRANSACTIONS;
-
+SELECT COUNT(*)
+FROM VW_HIGH_RISK_TRANSACTIONS;
 -- Q27: Create materialized view MV_DAILY_FRAUD_REPORT for daily fraud reporting
 CREATE OR REPLACE MATERIALIZED VIEW MV_DAILY_FRAUD_REPORT AS
 SELECT transaction_date,
@@ -80,9 +80,9 @@ SELECT transaction_date,
     ROUND(SUM(transaction_amount), 2) AS total_amount
 FROM BANK_TRANSACTIONS
 GROUP BY transaction_date;
-
-SELECT * FROM MV_DAILY_FRAUD_REPORT LIMIT 10;
-
+SELECT *
+FROM MV_DAILY_FRAUD_REPORT
+LIMIT 10;
 -- Q28: Detect suspicious customers using SQL
 SELECT customer_id,
     ROUND(AVG(transaction_amount), 2) AS avg_transaction_amount,
@@ -99,4 +99,5 @@ WHERE is_international = 1
         FROM BANK_TRANSACTIONS
     )
 GROUP BY customer_id
-ORDER BY confirmed_frauds DESC, max_failed_attempts DESC;
+ORDER BY confirmed_frauds DESC,
+    max_failed_attempts DESC;

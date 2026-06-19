@@ -3,7 +3,6 @@ from pyspark.sql.functions import col, window, from_json
 from pyspark.sql.types import StructType, StringType
 import os
 
-# ── SPARK SESSION ─────────────────────────────────────────────────────────────
 spark = SparkSession.builder \
     .appName('Q14 - Page View Stream') \
     .master('local[*]') \
@@ -13,15 +12,15 @@ spark = SparkSession.builder \
 
 spark.sparkContext.setLogLevel('WARN')
 
-# ── SCHEMA ────────────────────────────────────────────────────────────────────
+# SCHEMA 
 # Explicit schema for from_json — Spark cannot infer from a streaming source.
 # timestamp is parsed as StringType then cast to timestamp so withWatermark works.
 schema = StructType() \
-    .add('user_id',   StringType()) \
-    .add('page',      StringType()) \
+    .add('user_id', StringType()) \
+    .add('page', StringType()) \
     .add('timestamp', StringType())
 
-# ── READ FROM KAFKA ───────────────────────────────────────────────────────────
+# READ FROM KAFKA 
 # Each Kafka message value is JSON bytes → cast to string → parse with schema.
 # 'page-views' is the topic the producer writes to.
 raw_stream = spark.readStream \
@@ -39,17 +38,15 @@ stream_df = (
     .withColumn('ts', col('timestamp').cast('timestamp'))
 )
 
-# ── WATERMARK + TUMBLING WINDOW ───────────────────────────────────────────────
+# WATERMARK + TUMBLING WINDOW 
 # withWatermark("ts", "10 minutes"):
-#   Spark accepts late events up to 10 minutes behind the max seen timestamp.
-#   Events older than the watermark line are dropped — this bounds state size.
-#
+# Spark accepts late events up to 10 minutes behind the max seen timestamp.
+# Events older than the watermark line are dropped — this bounds state size.
 # window(col("ts"), "5 minutes"):
-#   Groups events into 5-minute tumbling buckets based on event timestamp.
-#   Tumbling = non-overlapping: each event belongs to exactly one bucket.
-#
+# Groups events into 5-minute tumbling buckets based on event timestamp.
+# Tumbling = non-overlapping: each event belongs to exactly one bucket.
 # groupBy(window, page) + count():
-#   Within each 5-minute bucket, count views per page.
+# Within each 5-minute bucket, count views per page.
 windowed_counts = (
     stream_df
     .withWatermark('ts', '10 minutes')
@@ -60,7 +57,7 @@ windowed_counts = (
     .count()
 )
 
-# ── WRITE TO CONSOLE ──────────────────────────────────────────────────────────
+# WRITE TO CONSOLE 
 # outputMode='update' — print only rows that changed in this micro-batch.
 # trigger='10 seconds' — process new Kafka messages every 10 seconds.
 # truncate=False — show full window timestamps without cutting them off.

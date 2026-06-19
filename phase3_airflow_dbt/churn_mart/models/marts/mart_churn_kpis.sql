@@ -1,4 +1,7 @@
 -- Q7: Customer Churn Data Mart — Mart Layer
+-- Aggregates fct_churn by contract type to produce business KPIs:
+-- churn rate %, average CLV, and annual revenue at risk per contract segment.
+-- This is the table the Airflow BI report and dashboards read from.
 with fct as (
     select *
     from {{ ref('fct_churn') }}

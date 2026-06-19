@@ -1,25 +1,4 @@
 # Phase 4 — NiFi, Kafka & Spark
-**Real-Time Streaming & Data Processing**
-
----
-
-## Coding Tasks
-
-| Q | File | What it does |
-| --- | ------ | ------------- |
-| Q2 | `nifi/mock_api.py` | Flask API serving JSON sales records — used as the HTTP source in a NiFi InvokeHTTP flow |
-| Q5 | `kafka/q5_kafka_producer.py` | Produces 50 JSON transaction events to topic `nifi-transactions` (1 msg/s) |
-| Q8 | `kafka/q8_csv_producer.py` | Reads `transactions.csv`, streams each row as a JSON message to topic `transactions` |
-| Q9 | `kafka/q9_streams_app.py` | Kafka Streams app: consumes `transactions`, keeps a stateful running-total per customer (KTable pattern), produces to `high-value-customers` when total exceeds $10,000; `q9_test_producer.py` seeds test data |
-| Q11 | `spark/q11_top_customers.py` | Batch Spark job: reads `transactions.csv`, groups by `customer_id`, sums `amount`, returns top 10 by total spend |
-| Q12 | `spark/q12_risk_classifier.py` | Batch Spark job: applies rule-based risk classification (Low / Medium / High) using `amount`, `country`, `device_type`; writes results to `risk_records.json` |
-| Q14 | `spark/q14_page_views_stream.py` | Structured Streaming: reads page-view events from Kafka topic `page-views`, applies a 10-minute watermark and 5-minute tumbling window, counts views per page per window; `q14_pageview_producer.py` seeds the topic |
-| Q16 | `spark/q16_anomaly_detection.py` | Structured Streaming: reads IoT sensor readings from Kafka topic `sensor-readings`, computes rolling 1-hour AVG + STDDEV per sensor, flags temperature > avg + 3σ as anomalies, writes alerts to Kafka topic `sensor-alerts` and Snowflake |
-| Q19 | `spark/q19_late_data_stream.py` | Structured Streaming: reads from Kafka topic `sensor-readings` using `outputMode('update')` + `foreachBatch` MERGE-upsert into Snowflake, demonstrating how re-emitted windows are handled when late data arrives; `q19_sensor_producer.py` seeds the topic |
-
----
-
-## Theory Questions & Answers
 
 ---
 
@@ -122,8 +101,6 @@ This is called a **time-or-count trigger** — it guarantees both throughput and
 5. **Provenance**
    - Every FlowFile has a full audit trail in NiFi Data Provenance — you can trace exactly which Kafka offset produced which file.
 
-**Local implementation note:**
-In this project, PutHDFS is replaced with PutFile writing to `kafka/output/` since HDFS is not running locally. The flow logic is identical — only the destination processor changes.
 
 ---
 
@@ -216,20 +193,7 @@ Think of it like planning your whole road trip before driving — you don't driv
 
 ### Q13 — Spark Streaming (DStreams) vs Structured Streaming
 
-**DStreams (Discretized Streams) — the old way**
-- Introduced in Spark 1.x
-- Treats a stream as a sequence of small RDD batches (micro-batches)
-- Low-level API — you work with RDDs directly
-- No built-in support for event-time, watermarking, or exactly-once semantics
-- Being phased out — not recommended for new projects
-
-**Structured Streaming — the modern way**
-- Introduced in Spark 2.x, stable in Spark 2.2+
-- Treats a stream as an **unbounded DataFrame** — same API as batch Spark SQL
-- Built-in support for event-time windows, watermarking (late data handling), and exactly-once semantics
-- Optimized by the Catalyst query optimizer (same engine as Spark SQL)
-- Supports multiple output modes: append, update, complete
-
+DStreams treat streaming as RDD batches, while Structured Streaming treats streaming as a continuously updated SQL table.
 **Key difference in one sentence:**
 DStreams = RDD-based micro-batches with manual everything. Structured Streaming = SQL-style API with automatic optimization, late data handling, and fault tolerance built in.
 

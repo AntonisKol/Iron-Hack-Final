@@ -1,4 +1,6 @@
 -- Q7: Customer Churn Data Mart — Staging Layer
+-- Reads raw Snowflake source, renames columns to snake_case,
+-- and converts Yes/No strings to 1/0 integers. No business logic here.
 with source as (
     select *
     from {{ source('churn_raw', 'RAW_CHURN') }}

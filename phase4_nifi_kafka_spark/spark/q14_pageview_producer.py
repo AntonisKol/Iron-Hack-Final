@@ -19,10 +19,10 @@ for i in range(30):
     # spread events across the last 10 minutes — some will fall in the
     # current 5-min window, some in the previous one (late-data scenario)
     minutes_ago = random.uniform(0, 10)
-    event_time  = now - timedelta(minutes=minutes_ago)
+    event_time = now - timedelta(minutes=minutes_ago)
     event = {
-        'user_id':   f'U{random.randint(100, 999)}',
-        'page':      random.choice(PAGES),
+        'user_id': f'U{random.randint(100, 999)}',
+        'page': random.choice(PAGES),
         'timestamp': event_time.strftime('%Y-%m-%dT%H:%M:%S'),
     }
     producer.send(TOPIC, value=event)

@@ -26,16 +26,14 @@ spark = SparkSession.builder \
 
 spark.sparkContext.setLogLevel('WARN')
 
-# ── LOAD DATA ─────────────────────────────────────────────────────────────────
 df = spark.read.json(JSON_PATH)
 
 print('=== Raw data ===')
 df.show()
 df.printSchema()
 
-# ── UDF DEFINITION ────────────────────────────────────────────────────────────
-# A regular Python function that applies the business rule.
-# Three inputs, one string output — a label per record.
+# UDF DEFINITION 
+# This is custom Python logic executed across Spark worker nodes
 def classify_risk(amount, credit_score, failed_attempts):
     if amount > 10000 or credit_score < 500 or failed_attempts > 3:
         return 'high'
@@ -44,13 +42,13 @@ def classify_risk(amount, credit_score, failed_attempts):
     else:
         return 'low'
 
-# ── UDF REGISTRATION ──────────────────────────────────────────────────────────
+# UDF REGISTRATION 
 # udf() wraps the Python function so Spark can call it on each row in parallel.
 # StringType() tells Spark what the return type is — required at registration time.
 classify_udf = udf(classify_risk, StringType())
 
-# ── APPLY UDF ────────────────────────────────────────────────────────────────
-# withColumn adds a new column; classify_udf is called once per row, across all cores.
+# APPLY UDF 
+# UDF is executed row-by-row across partitions in parallel
 df_classified = df.withColumn(
     'risk_level',
     classify_udf(col('amount'), col('credit_score'), col('failed_attempts'))
@@ -59,32 +57,31 @@ df_classified = df.withColumn(
 print('=== Classified records ===')
 df_classified.select('id', 'customer_id', 'amount', 'credit_score', 'failed_attempts', 'risk_level').show()
 
-# ── CACHE ─────────────────────────────────────────────────────────────────────
-# cache() stores the classified DataFrame in memory after the first action.
-# Without it, the three .count() calls below would each re-run the UDF from scratch.
+# CACHE 
+# # cache() stores intermediate result in memory to avoid recomputation
+# without cache, each action (.count()) re-runs full UDF pipeline
 df_classified.cache()
 
-# ── SPLIT BY RISK LEVEL ───────────────────────────────────────────────────────
-df_high   = df_classified.filter(col('risk_level') == 'high')
+# iltering creates separate logical datasets from the same cached DataFrame
+df_high = df_classified.filter(col('risk_level') == 'high')
 df_medium = df_classified.filter(col('risk_level') == 'medium')
-df_low    = df_classified.filter(col('risk_level') == 'low')
+df_low = df_classified.filter(col('risk_level') == 'low')
 
-print(f'High risk:   {df_high.count()} records')
+print(f'High risk: {df_high.count()} records')
 print(f'Medium risk: {df_medium.count()} records')
-print(f'Low risk:    {df_low.count()} records')
+print(f'Low risk: {df_low.count()} records')
 
 
-# ── WRITE TO SNOWFLAKE ────────────────────────────────────────────────────────
-# toPandas() converts a Spark DataFrame to a pandas DataFrame for row-level inserts.
-# risk_level is dropped before writing — each table already represents one level.
+# WRITE TO SNOWFLAKE 
+# This is a sink operation: Spark pushes data outside the cluster
 def write_to_snowflake(spark_df, table_name):
     conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
     cursor = conn.cursor()
 
-    pandas_df = spark_df.toPandas()
+    pandas_df = spark_df.toPandas() # converts a Spark DataFrame to a pandas DataFrame for row-level inserts.
     pandas_df = pandas_df.drop(columns=['risk_level'])
 
-    cols = ', '.join(pandas_df.columns)
+    cols = ', '.join(pandas_df.columns) # generates a string of column names separated by commas for the SQL INSERT statement.
     placeholders = ', '.join(['%s'] * len(pandas_df.columns))
 
     # CREATE OR REPLACE makes this idempotent — safe to re-run without duplicates

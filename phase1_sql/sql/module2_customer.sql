@@ -1,6 +1,5 @@
 USE DATABASE FRAUD_DB;
 USE SCHEMA FRAUD_SCHEMA;
-
 -- Q6: Top 20 customers by total transaction amount
 SELECT customer_id,
     ROUND(SUM(transaction_amount), 2) AS total_amount,
@@ -9,7 +8,6 @@ FROM BANK_TRANSACTIONS
 GROUP BY customer_id
 ORDER BY total_amount DESC
 LIMIT 20;
-
 -- Q7: Average transaction amount by age group
 SELECT CASE
         WHEN customer_age BETWEEN 18 AND 25 THEN '18-25'
@@ -23,7 +21,6 @@ SELECT CASE
 FROM BANK_TRANSACTIONS
 GROUP BY age_group
 ORDER BY avg_amount DESC;
-
 -- Q8: Fraud rate by age group
 SELECT CASE
         WHEN customer_age BETWEEN 18 AND 25 THEN '18-25'
@@ -38,7 +35,6 @@ SELECT CASE
 FROM BANK_TRANSACTIONS
 GROUP BY age_group
 ORDER BY fraud_rate DESC;
-
 -- Q9: High-balance low-frequency potential dormant accounts
 SELECT customer_id,
     ROUND(AVG(account_balance), 2) AS avg_balance,
@@ -56,7 +52,6 @@ HAVING AVG(account_balance) > (
     )
 ORDER BY avg_balance DESC
 LIMIT 20;
-
 -- Q10: Average account balance and credit score by country
 SELECT country,
     ROUND(AVG(account_balance), 2) AS avg_balance,

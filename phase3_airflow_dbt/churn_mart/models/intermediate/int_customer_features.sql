@@ -1,4 +1,7 @@
 -- Q7: Customer Churn Data Mart — Intermediate Layer
+-- Adds two calculated columns on top of the staging data:
+--   clv (customer lifetime value) and risk_score (churn risk points, 0–6).
+-- All downstream models (dim_customers, dim_services, fct_churn) build from this.
 with stg as (
     select *
     from {{ ref('stg_churn') }}

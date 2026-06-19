@@ -2,7 +2,7 @@
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import json
 
-# ── SOURCE DATA ───────────────────────────────────────────────────────────────
+# SOURCE DATA 
 # Five hardcoded transaction records that NiFi's InvokeHTTP processor fetches.
 # status=ERROR records are routed to an alert folder in the NiFi flow;
 # status=SUCCESS records go to a processed folder via RouteOnAttribute.
@@ -14,7 +14,7 @@ RECORDS = [
     {"id": 5, "name": "Transaction E", "amount": 45.0,   "status": "SUCCESS"},
 ]
 
-# ── REQUEST HANDLER ───────────────────────────────────────────────────────────
+# REQUEST HANDLER 
 class MockAPIHandler(BaseHTTPRequestHandler):
     # do_GET: responds to every GET request with HTTP 200 + full records list as JSON.
     # NiFi's InvokeHTTP processor calls this on each scheduled fetch.
@@ -30,7 +30,7 @@ class MockAPIHandler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         print(f'[Mock API] {args[0]} {args[1]}')
 
-# ── SERVER STARTUP ────────────────────────────────────────────────────────────
+# SERVER STARTUP 
 if __name__ == '__main__':
     server = HTTPServer(('localhost', 8888), MockAPIHandler)
     print('Mock API running at http://localhost:8888 — press Ctrl+C to stop')

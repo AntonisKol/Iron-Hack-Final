@@ -38,13 +38,19 @@ stream_df = (
     .withWatermark('ts', '5 minutes')
 )
 
+# ── HASHTAG EXPLODE ───────────────────────────────────────────────────────────
+# explode(hashtags): a post with 3 hashtags becomes 3 rows — one per hashtag.
+# This lets us groupBy hashtag and count across all posts in a time window.
 hashtag_df = (
     stream_df
     .filter(col('hashtags').isNotNull())
     .select(col('ts'), explode(col('hashtags')).alias('hashtag'))
 )
 
-
+# ── MULTI-WINDOW AGGREGATION ──────────────────────────────────────────────────
+# The same helper builds three independent aggregations: 1-min, 5-min, 15-min.
+# Each produces a count of how many times each hashtag was used in that window.
+# window_size column is added so all three can be unioned into one table.
 def make_window_agg(df, window_duration, slide_duration=None):
     w = window(col('ts'), window_duration, slide_duration) if slide_duration \
         else window(col('ts'), window_duration)
@@ -58,6 +64,7 @@ agg_1m  = make_window_agg(hashtag_df, '1 minute')
 agg_5m  = make_window_agg(hashtag_df, '5 minutes')
 agg_15m = make_window_agg(hashtag_df, '15 minutes')
 
+# union() stacks the three DataFrames — one Snowflake table holds all window sizes.
 combined = agg_1m.union(agg_5m).union(agg_15m)
 
 

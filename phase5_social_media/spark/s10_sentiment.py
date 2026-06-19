@@ -10,6 +10,7 @@ from utils import SNOWFLAKE_CONFIG, EVENT_SCHEMA as schema
 BASE_DIR   = os.path.dirname(__file__)
 CHECKPOINT = os.path.join(BASE_DIR, 'checkpoints', 's10_checkpoint')
 
+# ── KEYWORD LISTS ────────────────────────────────────────────────────────────
 POSITIVE_KEYWORDS = [
     'love', 'amazing', 'incredible', 'best', 'stunning', 'fantastic',
     'wonderful', 'inspiring', 'great', 'excellent', 'awesome', 'beautiful',
@@ -21,7 +22,10 @@ NEGATIVE_KEYWORDS = [
     'bad', 'ugly', 'poor',
 ]
 
-
+# ── SENTIMENT CLASSIFIER ──────────────────────────────────────────────────────
+# Negative is checked FIRST — a comment like "not great" contains the word "great"
+# but the intent is negative. Checking negative first prevents a false POSITIVE label.
+# Anything that matches neither list is NEUTRAL.
 def classify_sentiment(text):
     if not text:
         return 'NEUTRAL'
@@ -34,7 +38,8 @@ def classify_sentiment(text):
             return 'POSITIVE'
     return 'NEUTRAL'
 
-
+# ── UDF REGISTRATION ─────────────────────────────────────────────────────────
+# Wraps the Python function so Spark can apply it column-wise across all rows in parallel.
 sentiment_udf = udf(classify_sentiment, StringType())
 
 spark = SparkSession.builder \
@@ -56,6 +61,9 @@ raw_stream = spark.readStream \
     .option('failOnDataLoss', 'false') \
     .load()
 
+# ── FILTER COMMENTS + CLASSIFY ───────────────────────────────────────────────
+# Only COMMENT events with non-null comment_text are relevant for sentiment.
+# sentiment_udf is applied inline as a DataFrame transformation — one call per row.
 comments_df = (
     raw_stream
     .select(from_json(col('value').cast('string'), schema).alias('d'))

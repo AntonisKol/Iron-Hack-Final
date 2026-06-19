@@ -11,6 +11,11 @@ BASE_DIR   = os.path.dirname(__file__)
 CHECKPOINT = os.path.join(BASE_DIR, 'checkpoints', 's6_checkpoint')
 
 
+# ── DIMENSION PRELOAD ─────────────────────────────────────────────────────────
+# Both dimension tables are loaded into Python dicts at startup — once, not per event.
+# This avoids a Snowflake round-trip for every record in every micro-batch.
+# user_dim: user_id → {username, user_type}
+# post_dim: post_id → {content_type, hashtags}
 def load_dimensions():
     conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
     cur  = conn.cursor()
@@ -56,6 +61,10 @@ stream_df = raw_stream.select(
 ).select('d.*')
 
 
+# ── FOREACH BATCH HANDLER — ENRICHMENT ───────────────────────────────────────
+# For each event, look up the user and post details from the preloaded dicts.
+# Falls back to defaults ('unknown', 'regular') if the user/post is not in the dim table.
+# Output goes to CURATED.CURATED_EVENTS — the "value-added" version of the raw events.
 def enrich_and_write(batch_df, batch_id):
     if batch_df.isEmpty():
         return
@@ -70,6 +79,7 @@ def enrich_and_write(batch_df, batch_id):
         uid    = str(row.get('user_id') or '')
         pid    = str(row.get('post_id') or '') or None
 
+        # Dict lookup — O(1), no SQL query per row
         user_info = user_dim.get(uid, {'username': 'unknown', 'user_type': 'regular'})
         post_info = post_dim.get(pid, {}) if pid else {}
 

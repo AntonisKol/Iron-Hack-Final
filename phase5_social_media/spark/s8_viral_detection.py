@@ -38,6 +38,9 @@ stream_df = (
     .withWatermark('ts', '5 minutes')
 )
 
+# ── LIKE COUNT PER POST PER 5-MINUTE WINDOW ───────────────────────────────────
+# Only LIKE events with a post_id count toward virality.
+# groupBy window + post_id: count how many likes each post received in each 5-min bucket.
 like_counts = (
     stream_df
     .filter(col('event_type') == 'LIKE')
@@ -46,11 +49,15 @@ like_counts = (
     .agg(count('*').alias('like_count'))
 )
 
-
+# ── FOREACH BATCH HANDLER — VIRAL THRESHOLD CHECK ────────────────────────────
+# The threshold filter must happen AFTER counting — we need all posts' counts
+# before we know which ones crossed 500. Filtering before counting would miss posts
+# that accumulate likes across multiple batches.
 def detect_and_write(batch_df, batch_id):
     if batch_df.isEmpty():
         return
 
+    # Apply threshold only to this batch — posts below 500 produce no output
     viral_df = batch_df.filter(col('like_count') >= VIRAL_THRESHOLD)
     if viral_df.isEmpty():
         return

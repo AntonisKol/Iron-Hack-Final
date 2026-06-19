@@ -7,6 +7,9 @@ import json
 import os
 from utils import SNOWFLAKE_CONFIG, EVENT_SCHEMA as schema, nan_to_none
 
+# ── VALID EVENT TYPES ─────────────────────────────────────────────────────────
+# Any event_type not in this set is marked invalid but still stored in RAW.
+# Nothing is discarded — the raw layer is a complete, immutable audit log.
 VALID_EVENT_TYPES = {
     'POST_CREATED', 'LIKE', 'COMMENT', 'SHARE',
     'FOLLOW', 'VIDEO_VIEW', 'PROFILE_VISIT',
@@ -42,6 +45,10 @@ stream_df = raw_stream.select(
 ).select('d.*')
 
 
+# ── VALIDATION RULES ──────────────────────────────────────────────────────────
+# Returns a list of error strings — empty list means the event is valid.
+# post_id is required for engagement events (LIKE, COMMENT, SHARE, VIDEO_VIEW)
+# but not for social events (FOLLOW, PROFILE_VISIT, POST_CREATED).
 def validate_row(row):
     errors = []
     if not row.get('event_id'):
@@ -55,6 +62,9 @@ def validate_row(row):
     return errors
 
 
+# ── FOREACH BATCH HANDLER — RAW WRITE ────────────────────────────────────────
+# Every event (valid or not) is written to RAW.RAW_EVENTS.
+# Invalid events are ALSO saved locally to bad_records/ for investigation.
 def write_to_raw(batch_df, batch_id):
     if batch_df.isEmpty():
         return
@@ -77,6 +87,7 @@ def write_to_raw(batch_df, batch_id):
             valid_cnt += 1
         else:
             invalid_cnt += 1
+            # Save a copy of bad events locally — raw_payload + error list for debugging
             bad_path = os.path.join(BAD_DIR, f'bad_{batch_id}_{row_dict.get("event_id","x")}.json')
             with open(bad_path, 'w') as f:
                 json.dump({**row_dict, 'errors': errors}, f)

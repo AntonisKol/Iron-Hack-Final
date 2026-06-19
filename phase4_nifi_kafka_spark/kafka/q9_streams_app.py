@@ -7,8 +7,16 @@ INPUT_TOPIC = 'transactions'
 OUTPUT_TOPIC = 'high-value-customers'
 FILTER_THRESHOLD = 10_000
 
+# ── KTABLE STATE ──────────────────────────────────────────────────────────────
+# running_totals is the in-memory KTable: customer_id → cumulative spend.
+# It persists across messages — message 5 from a customer knows about messages 1–4.
+# This is the core concept of stateful stream processing.
 running_totals = {}
 
+# ── CONSUMER SETUP ────────────────────────────────────────────────────────────
+# group_id='streams-app': Kafka tracks this group's read position (offset).
+# auto_offset_reset='earliest': start from the first available message in the topic.
+# value_deserializer: inverse of the producer's serializer — bytes → dict.
 consumer = KafkaConsumer(
     INPUT_TOPIC,
     bootstrap_servers='localhost:9092',
@@ -19,6 +27,9 @@ consumer = KafkaConsumer(
     key_deserializer=lambda k: k.decode('utf-8') if k else None,
 )
 
+# ── PRODUCER SETUP ────────────────────────────────────────────────────────────
+# This app is both a consumer (reads transactions) and a producer (writes alerts).
+# acks='all' ensures every alert is durably stored before moving to the next message.
 producer = KafkaProducer(
     bootstrap_servers='localhost:9092',
     acks='all',
@@ -45,10 +56,15 @@ try:
         amount = float(record.get('amount', 0))
         transaction_id = record.get('transaction_id', '?')
 
+        # ── FILTER ────────────────────────────────────────────────────────────
+        # Skip low-value transactions — only track customers spending above the threshold.
         if amount <= FILTER_THRESHOLD:
             print(f'  SKIP  {transaction_id} | {customer_id} | ${amount:,.2f} (below threshold)')
             continue
 
+        # ── STATEFUL UPDATE (KTable) ───────────────────────────────────────────
+        # Look up the customer's previous total (0.0 if first seen), add this amount.
+        # This is what makes it stateful: each message builds on prior messages.
         previous_total = running_totals.get(customer_id, 0.0)
         new_total = previous_total + amount
         running_totals[customer_id] = new_total

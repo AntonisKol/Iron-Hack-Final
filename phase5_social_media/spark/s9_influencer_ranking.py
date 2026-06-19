@@ -30,6 +30,11 @@ raw_stream = spark.readStream \
     .option('failOnDataLoss', 'false') \
     .load()
 
+# ── ENGAGEMENT WEIGHTS ────────────────────────────────────────────────────────
+# Each event type is assigned a weight reflecting its effort and reach:
+#   LIKE=1, FOLLOW=2, COMMENT=3, SHARE=5 (shares reach new audiences).
+#   VIDEO_VIEW=0.5 (passive — least effort).
+# when().otherwise() is a Spark CASE WHEN — applied to every row in parallel.
 stream_df = (
     raw_stream
     .select(from_json(col('value').cast('string'), schema).alias('d'))
@@ -47,6 +52,9 @@ stream_df = (
     )
 )
 
+# ── ENGAGEMENT AGGREGATION ────────────────────────────────────────────────────
+# 15-minute window per user: sum weighted score + individual event-type counts.
+# count(when(...)): conditional count — only counts rows matching that event type.
 engagement_agg = (
     stream_df
     .groupBy(window(col('ts'), '15 minutes'), col('user_id'))
@@ -71,6 +79,8 @@ def write_rankings(batch_df, batch_id):
     now_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
     rows    = []
 
+    # Rank users within this batch by engagement_score (1 = highest).
+    # method='min': tied users share the same rank (e.g., both get rank 2).
     pdf['rank'] = pdf['engagement_score'].rank(ascending=False, method='min').astype(int)
 
     for _, row in pdf.iterrows():

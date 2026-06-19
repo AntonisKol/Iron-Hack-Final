@@ -36,11 +36,16 @@ spark = SparkSession.builder \
 
 spark.sparkContext.setLogLevel('WARN')
 
+# ── SCHEMA ────────────────────────────────────────────────────────────────────
+# Explicit schema required for from_json — Spark cannot infer from a streaming source.
 schema = StructType() \
     .add('sensor_id',   StringType()) \
     .add('temperature', DoubleType()) \
     .add('ts',          TimestampType())
 
+# ── READ FROM KAFKA ───────────────────────────────────────────────────────────
+# startingOffsets='latest': only process new readings, ignore historical backlog.
+# failOnDataLoss='false': continue if Kafka deletes old offsets (log compaction).
 raw_stream = spark.readStream \
     .format('kafka') \
     .option('kafka.bootstrap.servers', KAFKA_BROKER) \
@@ -49,6 +54,9 @@ raw_stream = spark.readStream \
     .option('failOnDataLoss', 'false') \
     .load()
 
+# ── PARSE & FILTER ────────────────────────────────────────────────────────────
+# from_json: decode the raw Kafka bytes into a struct using the declared schema.
+# Null checks drop malformed messages before they reach detect_and_write.
 stream_df = (
     raw_stream
     .select(from_json(col('value').cast('string'), schema).alias('d'))
@@ -90,13 +98,14 @@ def init_tables():
 init_tables()
 
 
+# ── FOREACH BATCH HANDLER ─────────────────────────────────────────────────────
+# foreachBatch gives each micro-batch as a regular (non-streaming) DataFrame.
+# Four steps run per batch:
+#   1. Persist readings to Snowflake — builds rolling history across batches.
+#   2. Query Snowflake AVG + STDDEV_POP over the last hour, per sensor.
+#   3. Flag readings where temperature > rolling_avg + 3 * rolling_stddev (3-sigma rule).
+#   4. Write alerts to both Kafka (sensor-alerts) and Snowflake (SENSOR_ANOMALY_ALERTS).
 def detect_and_write(batch_df, batch_id):
-    """
-    1. Persist incoming readings to Snowflake (builds rolling history across micro-batches).
-    2. Query Snowflake for AVG + STDDEV_POP over the last hour, per sensor.
-    3. Flag readings where temperature > rolling_avg + 3 * rolling_stddev.
-    4. Write alerts to Kafka topic 'sensor-alerts' AND Snowflake SENSOR_ANOMALY_ALERTS.
-    """
     if batch_df.isEmpty():
         return
 
@@ -114,6 +123,10 @@ def detect_and_write(batch_df, batch_id):
              float(row['temperature']), str(row['ts']), now_str),
         )
 
+    # ── COMPUTE ROLLING STATS PER SENSOR ──────────────────────────────────────
+    # Query last-hour history from Snowflake — history accumulates across batches.
+    # r[2] >= 10: require at least 10 readings before flagging anomalies.
+    #   Prevents false alarms during the first few seconds a sensor comes online.
     sensors = pdf['sensor_id'].unique().tolist()
     stats   = {}
     for sensor in sensors:
@@ -184,6 +197,9 @@ def detect_and_write(batch_df, batch_id):
     conn.close()
 
 
+# ── START STREAMING QUERY ─────────────────────────────────────────────────────
+# trigger='30 seconds': collect Kafka messages for 30 seconds, then run detect_and_write.
+# checkpointLocation: Spark tracks which Kafka offsets were processed — safe to restart.
 query = stream_df.writeStream \
     .foreachBatch(detect_and_write) \
     .trigger(processingTime='30 seconds') \

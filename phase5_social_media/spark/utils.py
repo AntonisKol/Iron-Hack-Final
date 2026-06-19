@@ -28,9 +28,6 @@ EVENT_SCHEMA = StructType() \
     .add('timestamp', StringType())
 
 
-# When Spark converts a DataFrame to Pandas, empty numeric fields become float('nan')
-# instead of None. Snowflake refuses to store nan, so this converts it to None (SQL NULL).
-# The try/except handles non-numeric values (strings, lists) that can't be cast to float.
 def nan_to_none(v):
     if v is None:
         return None

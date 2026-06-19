@@ -6,25 +6,20 @@ import random
 TOPIC = 'nifi-transactions'
 TOTAL_RECORDS = 2500
 
-
 producer = KafkaProducer(
     bootstrap_servers='localhost:9092',
-    value_serializer=lambda v: json.dumps(v).encode('utf-8') # value_serializer: Kafka only stores raw bytes, not Python objects. (lambda converts each dict → JSON string → UTF-8 bytes automatically)
+    value_serializer=lambda v: json.dumps(v).encode('utf-8'),
 )
 
 categories = ['retail', 'food', 'travel', 'electronics', 'health']
 
 print(f'Sending {TOTAL_RECORDS} records to topic: {TOPIC}')
 
-# EVENT GENERATION LOOP 
-# producer.send() is non-blocking — it queues the message in an internal buffer.
-# The background I/O thread batches and delivers them to the broker asynchronously.
-# 3-in-4 chance of SUCCESS simulates a realistic error rate.
 for i in range(1, TOTAL_RECORDS + 1):
     record = {
         'id': i,
-        'customer_id': random.randint(1000, 9999), 
-        'amount': round(random.uniform(5.0, 2000.0), 2), # 
+        'customer_id': random.randint(1000, 9999),
+        'amount': round(random.uniform(5.0, 2000.0), 2),
         'category': random.choice(categories),
         'status': random.choice(['SUCCESS', 'SUCCESS', 'SUCCESS', 'ERROR']),
     }
@@ -34,6 +29,6 @@ for i in range(1, TOTAL_RECORDS + 1):
     if i % 500 == 0:
         print(f'  Sent {i} / {TOTAL_RECORDS} records')
 
-producer.flush() # flush() blocks until the broker acknowledges all buffered messages.
+producer.flush()
 producer.close()
 print('Done.')

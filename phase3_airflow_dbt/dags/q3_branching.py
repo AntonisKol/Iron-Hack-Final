@@ -18,12 +18,10 @@ with DAG(
     catchup=False,
 ) as dag:
 
-    # Task 1: BranchPythonOperator — returns the task_id of the branch to execute
-    # .weekday() returns 0 on Monday, 1 on Tuesday ... 6 on Sunday
     def choose_branch():
-        if datetime.now().weekday() == 0:   # Task 2: Monday → run Full Load
+        if datetime.now().weekday() == 0:
             return 'full_load'
-        return 'incremental_load'           # Task 3: any other day → run Incremental Load
+        return 'incremental_load'
 
     task_branch = BranchPythonOperator(
         task_id='choose_branch',
@@ -49,15 +47,10 @@ with DAG(
     def pipeline_complete():
         print('Pipeline Complete')
 
-    # Task 4: Merge both branches back into one final task
-    # trigger_rule='none_failed_min_one_success' is required here:
-    # without it Airflow waits for BOTH upstream tasks and stalls forever
-    # when one branch is intentionally skipped
     task_end = PythonOperator(
         task_id='pipeline_complete',
         python_callable=pipeline_complete,
         trigger_rule='none_failed_min_one_success',
     )
 
-    # fan out to both options → only one runs → both reconnect to task_end
     task_branch >> [task_full, task_incremental] >> task_end

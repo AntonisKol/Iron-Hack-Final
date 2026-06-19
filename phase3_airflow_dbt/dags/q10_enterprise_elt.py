@@ -38,8 +38,6 @@ with DAG(
     catchup=False,
 ) as dag:
 
-    # Tasks 1 & 2: Ingest check — verify both source databases have data before running anything
-    # raises an Exception to fail fast: no point rebuilding dbt models if source data is missing
     def ingest_check():
         conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
         cursor = conn.cursor()
@@ -64,21 +62,18 @@ with DAG(
         on_failure_callback=send_failure_email,
     )
 
-    # Tasks 3 & 4: Build dbt staging layer and marts — rebuilds all models in dependency order
     task_dbt_run = BashOperator(
         task_id='dbt_run',
         bash_command=f'cd "{DBT_PROJECT_DIR}" && /opt/homebrew/bin/dbt run --project-dir .',
         on_failure_callback=send_failure_email,
     )
 
-    # Task 5: Run tests — validates unique/not_null constraints; only runs after dbt_run succeeds
     task_dbt_test = BashOperator(
         task_id='dbt_test',
         bash_command=f'cd "{DBT_PROJECT_DIR}" && /opt/homebrew/bin/dbt test --project-dir .',
         on_failure_callback=send_failure_email,
     )
 
-    # Task 7 (fraud): Generate fraud business report and push key metrics to XCom
     def fraud_business_report(**context):
         conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
         cursor = conn.cursor()
@@ -115,8 +110,6 @@ with DAG(
         on_failure_callback=send_failure_email,
     )
 
-    # Task 7 (churn): Generate churn business report and push revenue loss to XCom
-    # runs in parallel with fraud_business_report — both start after dbt_test succeeds
     def churn_business_report(**context):
         conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
         cursor = conn.cursor()
@@ -143,8 +136,6 @@ with DAG(
         on_failure_callback=send_failure_email,
     )
 
-    # Task 7 (email): Pull metrics from both XCom keys and send combined BI email via GMX SMTP
-    # Task 6: Schedule with Airflow → handled by the DAG schedule='0 8 * * *' above
     def send_business_report(**context):
         total_fraud = context['ti'].xcom_pull(task_ids='fraud_business_report', key='total_fraud')
         avg_fraud = context['ti'].xcom_pull(task_ids='fraud_business_report', key='avg_fraud_amount')

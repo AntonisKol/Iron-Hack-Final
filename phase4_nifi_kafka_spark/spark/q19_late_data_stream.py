@@ -32,25 +32,15 @@ spark = SparkSession.builder \
 
 spark.sparkContext.setLogLevel('WARN')
 
-# ── SCHEMA ────────────────────────────────────────────────────────────────────
 schema = StructType() \
     .add('sensor_id',   StringType()) \
     .add('temperature', DoubleType()) \
     .add('ts',          TimestampType())
 
-# ── READ FROM FILE SOURCE ─────────────────────────────────────────────────────
-# readStream.json() watches INPUT_DIR for new JSON files dropped by q19_sensor_producer.py.
-# This simulates a file-based ingestion pattern (vs Kafka in Q16).
 stream_df = spark.readStream \
     .schema(schema) \
     .json(INPUT_DIR)
 
-# ── WATERMARK + TUMBLING WINDOW ───────────────────────────────────────────────
-# withWatermark('ts', '10 minutes'): accept late events up to 10 minutes behind
-#   the latest seen timestamp. Events older than the watermark are dropped.
-# window('ts', '5 minutes'): group events into 5-minute tumbling buckets.
-# groupBy + agg: for each sensor × window, compute average temperature and count.
-# outputMode('update') later tells Spark to re-emit a window when late data changes it.
 aggregated = (
     stream_df
     .withWatermark('ts', '10 minutes')
@@ -100,12 +90,6 @@ def init_tables():
 init_tables()
 
 
-# ── FOREACH BATCH HANDLER — UPSERT ───────────────────────────────────────────
-# foreachBatch receives each micro-batch as a regular (non-streaming) DataFrame.
-# We flatten the window struct, collect to pandas, then do per-row Snowflake upserts.
-# Upsert logic: if the window+sensor row already exists → UPDATE + increment version.
-#               if it is new → INSERT with version=1.
-# SENSOR_CORRECTIONS_HISTORY records every version so auditors can see every change.
 def upsert_to_snowflake(batch_df, batch_id):
     if batch_df.isEmpty():
         return
@@ -121,8 +105,7 @@ def upsert_to_snowflake(batch_df, batch_id):
     pdf = flat_df.toPandas()
     conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
     cur  = conn.cursor()
-    now  = datetime.utcnow()
-    now_str = now.strftime('%Y-%m-%d %H:%M:%S')
+    now_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
 
     for _, row in pdf.iterrows():
         w_start = str(row['window_start'])
@@ -171,10 +154,6 @@ def upsert_to_snowflake(batch_df, batch_id):
     conn.close()
 
 
-# ── START STREAMING QUERY ─────────────────────────────────────────────────────
-# outputMode('update'): re-emit a window row every time late data changes its aggregate.
-#   This is what triggers the upsert — the same window appears in multiple micro-batches.
-# trigger='10 seconds': process new JSON files every 10 seconds.
 query = (
     aggregated.writeStream
     .outputMode('update')

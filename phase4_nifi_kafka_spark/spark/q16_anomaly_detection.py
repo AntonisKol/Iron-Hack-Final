@@ -25,7 +25,6 @@ INPUT_TOPIC   = 'sensor-readings'
 ALERT_TOPIC   = 'sensor-alerts'
 CHECKPOINT    = '/tmp/q16_checkpoint'
 
-# ── SPARK SESSION ─────────────────────────────────────────────────────────────
 spark = SparkSession.builder \
     .appName('Q16 - IoT Anomaly Detection') \
     .master('local[*]') \
@@ -35,16 +34,11 @@ spark = SparkSession.builder \
 
 spark.sparkContext.setLogLevel('WARN')
 
-# ── SCHEMA ────────────────────────────────────────────────────────────────────
-# Explicit schema required for from_json — Spark cannot infer from a streaming source.
 schema = StructType() \
     .add('sensor_id',   StringType()) \
     .add('temperature', DoubleType()) \
     .add('ts',          TimestampType())
 
-# ── READ FROM KAFKA ───────────────────────────────────────────────────────────
-# startingOffsets='latest': only process readings arriving from now on.
-# failOnDataLoss='false': continue if Kafka discards old offsets.
 raw_stream = spark.readStream \
     .format('kafka') \
     .option('kafka.bootstrap.servers', KAFKA_BROKER) \
@@ -53,8 +47,6 @@ raw_stream = spark.readStream \
     .option('failOnDataLoss', 'false') \
     .load()
 
-# ── PARSE & FILTER ────────────────────────────────────────────────────────────
-# Null checks drop malformed messages before they reach the anomaly logic.
 stream_df = (
     raw_stream
     .select(from_json(col('value').cast('string'), schema).alias('d'))
@@ -64,9 +56,6 @@ stream_df = (
 )
 
 
-# ── SNOWFLAKE TABLE SETUP ────────────────────────────────────────────────────
-# Runs once at startup. SENSOR_READINGS accumulates history across batches.
-# SENSOR_ANOMALY_ALERTS stores each individual reading that crossed the threshold.
 def init_tables():
     conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
     cur  = conn.cursor()
@@ -97,13 +86,6 @@ def init_tables():
 init_tables()
 
 
-# ── FOREACH BATCH HANDLER ─────────────────────────────────────────────────────
-# Four steps run per micro-batch:
-#   1. Persist incoming readings to Snowflake — builds rolling 1-hour history.
-#   2. Query Snowflake for AVG + STDDEV_POP per sensor over the last hour.
-#      Requires cnt >= 10 to prevent false alerts during sensor startup.
-#   3. Compare each reading: flag if temperature > avg + 3 * std (3-sigma rule).
-#   4. Write anomalies to Kafka sensor-alerts AND Snowflake SENSOR_ANOMALY_ALERTS.
 def detect_and_write(batch_df, batch_id):
     if batch_df.isEmpty():
         return
@@ -113,7 +95,6 @@ def detect_and_write(batch_df, batch_id):
     cur     = conn.cursor()
     now_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
 
-    # Step 1: persist all readings in this batch to build up rolling history
     for _, row in pdf.iterrows():
         cur.execute(
             'INSERT INTO SENSOR_READINGS '
@@ -123,7 +104,6 @@ def detect_and_write(batch_df, batch_id):
              float(row['temperature']), str(row['ts']), now_str),
         )
 
-    # Step 2: rolling stats per sensor — last 1 hour, minimum 10 readings required
     sensors = pdf['sensor_id'].unique().tolist()
     stats   = {}
     for sensor in sensors:
@@ -138,7 +118,6 @@ def detect_and_write(batch_df, batch_id):
         if r and r[2] >= 10 and r[0] is not None:
             stats[sensor] = {'avg': float(r[0]), 'std': float(r[1] or 0)}
 
-    # Step 3: compare each reading against its sensor's rolling baseline
     alerts = []
     for _, row in pdf.iterrows():
         sid  = str(row['sensor_id'])
@@ -158,9 +137,7 @@ def detect_and_write(batch_df, batch_id):
                     'detected_at':    now_str,
                 })
 
-    # Step 4: write alerts to Kafka AND Snowflake
     if alerts:
-        # 4a — Kafka: downstream consumers can react in real time
         try:
             from kafka import KafkaProducer
             producer = KafkaProducer(
@@ -175,7 +152,6 @@ def detect_and_write(batch_df, batch_id):
         except Exception as e:
             print(f'  [WARN] Kafka alert publish failed: {e}')
 
-        # 4b — Snowflake: long-term storage for audit and dashboards
         for a in alerts:
             cur.execute(
                 'INSERT INTO SENSOR_ANOMALY_ALERTS '
@@ -199,10 +175,6 @@ def detect_and_write(batch_df, batch_id):
     conn.close()
 
 
-# ── START STREAMING QUERY ─────────────────────────────────────────────────────
-# foreachBatch: gives each micro-batch as a regular DataFrame to detect_and_write.
-# trigger='10 seconds': collect Kafka messages for 10 seconds, then process.
-# checkpointLocation: Spark tracks processed offsets — safe to restart.
 query = stream_df.writeStream \
     .foreachBatch(detect_and_write) \
     .trigger(processingTime='10 seconds') \

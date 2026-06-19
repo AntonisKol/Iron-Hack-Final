@@ -1,3 +1,4 @@
+# Q14: Page View Producer
 from kafka import KafkaProducer
 from datetime import datetime, timedelta
 import random
@@ -16,8 +17,6 @@ print(f'Sending 30 page-view events to Kafka topic: {TOPIC}\n')
 now = datetime.utcnow()
 
 for i in range(30):
-    # spread events across the last 10 minutes — some will fall in the
-    # current 5-min window, some in the previous one (late-data scenario)
     minutes_ago = random.uniform(0, 10)
     event_time = now - timedelta(minutes=minutes_ago)
     event = {

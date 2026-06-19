@@ -1,12 +1,19 @@
 # Step 9: Influencer Ranking
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import (
-    col, window, count, sum as _sum, when, lit, from_json
-)
+from pyspark.sql.functions import col, from_json, when, lit, sum as spark_sum
+from pyspark.sql.window import Window
+from pyspark.sql import functions as F
 from datetime import datetime
 import snowflake.connector
 import os
 from utils import SNOWFLAKE_CONFIG, EVENT_SCHEMA as schema
+
+WEIGHTS = {
+    'LIKE': 1,
+    'COMMENT': 3,
+    'SHARE': 5,
+    'FOLLOW': 10,
+}
 
 BASE_DIR = os.path.dirname(__file__)
 CHECKPOINT = os.path.join(BASE_DIR, 'checkpoints', 's9_checkpoint')
@@ -30,92 +37,63 @@ raw_stream = spark.readStream \
     .option('failOnDataLoss', 'false') \
     .load()
 
-# ENGAGEMENT WEIGHTS 
-# Each event type is assigned a weight reflecting its effort and reach:
-# LIKE=1, FOLLOW=2, COMMENT=3, SHARE=5 (shares reach new audiences).
-#   VIDEO_VIEW=0.5 (passive — least effort).
-# when().otherwise() is a Spark CASE WHEN — applied to every row in parallel.
-stream_df = (
-    raw_stream
-    .select(from_json(col('value').cast('string'), schema).alias('d'))
-    .select('d.*')
-    .withColumn('ts', col('timestamp').cast('timestamp'))
-    .withWatermark('ts', '10 minutes')
-    .withColumn(
-        'weight',
-        when(col('event_type') == 'LIKE', lit(1.0))
-        .when(col('event_type') == 'COMMENT', lit(3.0))
-        .when(col('event_type') == 'SHARE', lit(5.0))
-        .when(col('event_type') == 'VIDEO_VIEW', lit(0.5))
-        .when(col('event_type') == 'FOLLOW', lit(2.0))
-        .otherwise(lit(0.0))
-    )
+stream_df = raw_stream.select(
+    from_json(col('value').cast('string'), schema).alias('d')
+).select('d.*')
+
+weighted_df = stream_df.filter(
+    col('event_type').isin(list(WEIGHTS.keys()))
+).withColumn(
+    'engagement_score',
+    when(col('event_type') == 'LIKE',    lit(WEIGHTS['LIKE']))
+    .when(col('event_type') == 'COMMENT', lit(WEIGHTS['COMMENT']))
+    .when(col('event_type') == 'SHARE',   lit(WEIGHTS['SHARE']))
+    .when(col('event_type') == 'FOLLOW',  lit(WEIGHTS['FOLLOW']))
+    .otherwise(lit(0))
 )
 
-# ENGAGEMENT AGGREGATION 
-# 15-minute window per user: sum weighted score + individual event-type counts.
-# count(when(...)): conditional count — only counts rows matching that event type.
-engagement_agg = (
-    stream_df
-    .groupBy(window(col('ts'), '15 minutes'), col('user_id'))
-    .agg(
-        _sum('weight').alias('engagement_score'),
-        count(when(col('event_type') == 'LIKE', True)).alias('like_count'),
-        count(when(col('event_type') == 'COMMENT', True)).alias('comment_count'),
-        count(when(col('event_type') == 'SHARE', True)).alias('share_count'),
-        count(when(col('event_type') == 'VIDEO_VIEW', True)).alias('video_view_count'),
-        count(when(col('event_type') == 'FOLLOW', True)).alias('follow_count'),
-    )
+agg_df = (
+    weighted_df
+    .filter(col('target_user_id').isNotNull())
+    .groupBy(col('target_user_id').alias('user_id'))
+    .agg(spark_sum('engagement_score').alias('total_engagement'))
 )
 
 
-def write_rankings(batch_df, batch_id):
+def rank_and_write(batch_df, batch_id):
     if batch_df.isEmpty():
         return
 
-    pdf = batch_df.toPandas()
+    ranked = batch_df.withColumn(
+        'rank',
+        F.rank().over(Window.orderBy(col('total_engagement').desc())),
+    )
+
+    pdf = ranked.toPandas()
     conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
     cur = conn.cursor()
     now_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
-    rows = []
-
-    # Rank users within this batch by engagement_score (1 = highest).
-    # method='min': tied users share the same rank (e.g., both get rank 2).
-    pdf['rank'] = pdf['engagement_score'].rank(ascending=False, method='min').astype(int)
 
     for _, row in pdf.iterrows():
-        rows.append((
-            str(row['user_id']),
-            str(row['window']['start']),
-            str(row['window']['end']),
-            float(row['engagement_score']),
-            int(row['like_count']),
-            int(row['comment_count']),
-            int(row['share_count']),
-            int(row['video_view_count']),
-            int(row['follow_count']),
-            int(row['rank']),
-            now_str,
-        ))
+        cur.execute(
+            'INSERT INTO ANALYTICS.INFLUENCER_RANKINGS '
+            '(user_id, total_engagement, rank, calculated_at) '
+            'VALUES (%s, %s, %s, %s)',
+            (
+                str(row['user_id']),
+                int(row['total_engagement']),
+                int(row['rank']),
+                now_str,
+            ),
+        )
 
-    cur.executemany(
-        'INSERT INTO ANALYTICS.INFLUENCER_RANKING ('
-        '  user_id, window_start, window_end, engagement_score,'
-        '  like_count, comment_count, share_count, video_view_count, follow_count,'
-        '  rank, calculated_at'
-        ') VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
-        rows,
-    )
     conn.close()
-
-    top = pdf.nlargest(5, 'engagement_score')[['user_id', 'engagement_score']]
-    print(f'  Batch {batch_id}: {len(rows)} user-window rows → INFLUENCER_RANKING')
-    print(f'  Top 5 this batch:\n{top.to_string(index=False)}\n')
+    print(f'  Batch {batch_id}: {len(pdf)} influencer ranks → INFLUENCER_RANKINGS')
 
 
-query = engagement_agg.writeStream \
-    .outputMode('update') \
-    .foreachBatch(write_rankings) \
+query = agg_df.writeStream \
+    .outputMode('complete') \
+    .foreachBatch(rank_and_write) \
     .trigger(processingTime='30 seconds') \
     .option('checkpointLocation', CHECKPOINT) \
     .start()

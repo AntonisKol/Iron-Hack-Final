@@ -8,7 +8,6 @@ from datetime import datetime, timezone
 TOPIC = 'sensor-readings'
 SENSORS = ['S001', 'S002', 'S003']
 
-# ── PRODUCER SETUP ────────────────────────────────────────────────────────────
 producer = KafkaProducer(
     bootstrap_servers='localhost:9092',
     value_serializer=lambda v: json.dumps(v).encode('utf-8'),
@@ -25,10 +24,6 @@ try:
     while True:
         sensor_id = random.choice(SENSORS)
 
-        # ── ANOMALY INJECTION ─────────────────────────────────────────────────
-        # Every ~30 readings, inject a spike well above the 3-sigma threshold.
-        # Spark's anomaly detection only fires after ≥10 readings per sensor,
-        # so the first anomaly alert appears after ~10+ normal readings.
         if count > 0 and count % 30 == 0:
             temperature = round(random.uniform(60.0, 80.0), 2)
             label = '*** SPIKE ***'

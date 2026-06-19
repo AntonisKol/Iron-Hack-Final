@@ -43,7 +43,6 @@ SELECT t.total_transactions,
     f.total_fraud_cases,
     f.fraud_percentage,
     f.top_fraud_type,
-    -- 
     r.highest_risk_country,
     r.highest_risk_merchant,
     r.highest_risk_payment,

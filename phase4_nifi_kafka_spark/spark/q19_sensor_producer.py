@@ -1,3 +1,4 @@
+# Q19: Sensor Producer — writes JSON files for the late-data stream
 import json
 import os
 import random
@@ -22,7 +23,6 @@ def write_event(sensor_id, temperature, ts, index, label):
     print(f'  {reading["ts"]}  {sensor_id}  {temperature:6.2f}°C  [{label}]')
 
 
-# ── PHASE 1: on-time events ────────────────────────────────────────────────────
 print('=== PHASE 1: on-time events (current timestamps) ===\n')
 
 for i in range(60):
@@ -35,14 +35,12 @@ for i in range(60):
 print('\n--- Waiting 35 seconds for Spark to process Phase 1 ---\n')
 time.sleep(35)
 
-# ── PHASE 2: late events (timestamps 7–9 minutes in the past) ─────────────────
 print('=== PHASE 2: late events (timestamps 7-9 minutes ago) ===\n')
 print('These fall into windows Spark already aggregated → corrections expected\n')
 
 for i in range(15):
-    sensor_id   = random.choice(SENSORS)
-    temperature = round(random.uniform(18.0, 28.0), 2)
-    # deliberately old timestamp — within the 10-minute watermark window
+    sensor_id    = random.choice(SENSORS)
+    temperature  = round(random.uniform(18.0, 28.0), 2)
     minutes_late = random.uniform(7.0, 9.0)
     ts           = datetime.utcnow() - timedelta(minutes=minutes_late)
     write_event(sensor_id, temperature, ts, 60 + i, f'LATE {minutes_late:.1f}min')

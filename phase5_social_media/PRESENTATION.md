@@ -134,3 +134,132 @@ Not all activity is equal. Clicking a like takes one second of thought. Writing 
 ### Step 10 — Reading the Mood
 
 Every comment that comes through is classified: is it positive, negative, or neutral? The classification is done with a keyword list — words like "amazing" and "love" trigger positive, words like "terrible" and "awful" trigger negative, everything else is neutral. The checking order matters: negative keywords are checked first, so a comment like "not great" doesn't accidentally get labelled positive because it contains the word "great." Results flow into a Snowflake table that a dashboard can aggregate — for instance, showing that a particular viral post has an unusually negative comment sentiment, suggesting the virality might be controversy rather than enthusiasm.
+
+---
+
+## How to Run — End to End
+
+### Prerequisites
+
+- Docker and docker-compose installed
+- PySpark installed with the Kafka connector JAR (`spark-sql-kafka-0-10_2.12:3.5.3`)
+- `.env` file at project root with Snowflake credentials
+- Snowflake account with `SOCIAL_MEDIA_DB` accessible (or created by setup.sql below)
+
+---
+
+### Step 1 — Run setup.sql in Snowflake (one time only)
+
+Copy and run `phase5_social_media/snowflake/setup.sql` in the Snowflake web UI.
+
+This creates `SOCIAL_MEDIA_DB` with three schemas (`RAW`, `CURATED`, `ANALYTICS`) and all required tables. Only needs to run once — all `CREATE ... IF NOT EXISTS` statements are safe to re-run if needed.
+
+---
+
+### Step 2 — Start Kafka
+
+```bash
+cd phase5_social_media
+docker-compose up -d
+```
+
+Wait ~15 seconds for Zookeeper (port 2181) and the Kafka broker (port 9092) to be fully ready.
+
+---
+
+### Step 3 — Create the Kafka topic
+
+```bash
+python phase5_social_media/kafka/create_topics.py
+```
+
+This creates the `social-events` topic with 3 partitions. Must run after Kafka is up.
+
+---
+
+### Step 4 — (Optional) Verify Kafka is receiving events
+
+```bash
+python phase5_social_media/kafka/validate_consumer.py
+```
+
+Leave this running in a separate terminal to monitor the raw event stream before starting Spark.
+
+---
+
+### Step 5 — Start the event simulator
+
+```bash
+python phase5_social_media/simulator/event_simulator.py
+```
+
+On startup the simulator seeds `USER_DIM` and `POST_DIM` in Snowflake, then begins publishing ~1,000 events per minute to the `social-events` topic. It fires a viral burst (600 likes to one post) every 60 seconds to trigger the viral detection job. Leave this running for the duration of the demo.
+
+---
+
+### Step 6 — Start all six Spark streaming jobs
+
+Each job runs as a separate long-running process. Open six terminals (or use `&` to background them).
+
+```bash
+# Terminal 1 — RAW ingestion: validates every event and writes to RAW.RAW_EVENTS
+spark-submit --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3 \
+  phase5_social_media/spark/s4_stream_processor.py
+
+# Terminal 2 — CURATED enrichment: joins events with USER_DIM and POST_DIM
+spark-submit --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3 \
+  phase5_social_media/spark/s6_enrichment.py
+
+# Terminal 3 — Trending hashtags: 1-min, 5-min, 15-min window counts
+spark-submit --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3 \
+  phase5_social_media/spark/s7_trending_hashtags.py
+
+# Terminal 4 — Viral detection: fires when any post gets >500 likes in 5 minutes
+spark-submit --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3 \
+  phase5_social_media/spark/s8_viral_detection.py
+
+# Terminal 5 — Influencer ranking: weighted engagement score per user, every 15 minutes
+spark-submit --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3 \
+  phase5_social_media/spark/s9_influencer_ranking.py
+
+# Terminal 6 — Sentiment: classifies every comment as positive / negative / neutral
+spark-submit --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3 \
+  phase5_social_media/spark/s10_sentiment.py
+```
+
+Start s4 first — the other jobs depend on events being written to `RAW_EVENTS` and `CURATED_EVENTS`.
+
+---
+
+### Step 7 — Connect Tableau
+
+In Tableau Desktop:
+
+1. Connect → Snowflake
+2. Enter credentials from `.env` (account, user, password, warehouse)
+3. Select database `SOCIAL_MEDIA_DB`, schema `ANALYTICS`
+4. Connect to any of the four output tables: `TRENDING_HASHTAGS`, `VIRAL_POSTS`, `INFLUENCER_RANKING`, `COMMENT_SENTIMENT`
+5. Set the data source to auto-refresh every 60 seconds to see live updates
+
+---
+
+### What to watch during the demo
+
+| What to open | What you will see |
+|---|---|
+| Kafka validate_consumer.py | Raw events arriving from the simulator |
+| Spark terminal 1 (s4) | Validation pass/fail counts per micro-batch |
+| Spark terminal 4 (s8) | Viral alert fired when post crosses 500 likes |
+| Snowflake → ANALYTICS.TRENDING_HASHTAGS | Hashtag counts updating every minute |
+| Tableau dashboard | Live charts refreshing automatically |
+
+---
+
+### Shutdown
+
+```bash
+# Ctrl+C all Spark terminals and the simulator
+# Then stop Kafka and Zookeeper
+cd phase5_social_media
+docker-compose down
+```

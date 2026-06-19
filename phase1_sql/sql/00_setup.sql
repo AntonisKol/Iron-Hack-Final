@@ -43,8 +43,6 @@ CREATE OR REPLACE FILE FORMAT fraud_csv_format TYPE = 'CSV' FIELD_DELIMITER = ',
 CREATE OR REPLACE STAGE fraud_stage FILE_FORMAT = fraud_csv_format COMMENT = 'Internal stage for bank fraud CSV files';
 -- BLOCK 5: PUT (run via upload_to_stage.py)
 -- Uploads bank_fraud.csv from local machine to the stage.
--- BLOCK 6: Load Data
--- Moves the file from the stage into the table.
--- ON_ERROR = 'CONTINUE' skips bad rows instead of failing.
+
 COPY INTO BANK_TRANSACTIONS
 FROM @fraud_stage / bank_fraud.csv FILE_FORMAT = (FORMAT_NAME = 'fraud_csv_format') ON_ERROR = 'CONTINUE';

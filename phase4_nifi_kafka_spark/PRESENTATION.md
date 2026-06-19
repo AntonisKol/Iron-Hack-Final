@@ -116,3 +116,134 @@ Q16 is a real-time alarm system for IoT sensors. Temperature readings arrive fro
 ### Q19 — Spark Streaming: Fixing the Past When Data Arrives Late
 
 This is the most sophisticated piece of the phase. Imagine a temperature sensor in a factory that sends readings every few seconds. One reading gets delayed in transit and arrives 8 minutes after it was taken. The system has already published the average temperature for that time window — but that average is now wrong. Q19 handles this by keeping the door open: when a late reading arrives within the 10-minute window, Spark recalculates the affected time period's average, updates the stored result, increments a version counter, and writes a new row to a corrections history table so auditors can see every version of every result. The companion script demonstrates this deliberately — it sends 60 on-time readings, pauses, then sends 15 readings with timestamps from 8 minutes ago. The correction logs appear in Snowflake exactly as expected.
+
+---
+
+## How to Run — End to End
+
+### Prerequisites
+
+- Kafka running on `localhost:9092` (no docker-compose in Phase 4 — use Phase 5's docker-compose or a local Kafka install)
+- PySpark installed with the Kafka connector JAR (`spark-sql-kafka-0-10_2.12:3.5.3`)
+- `kafka-python` installed: `pip install kafka-python`
+- `.env` file at project root with Snowflake credentials (needed for Q12, Q16)
+- A CSV file for Q8 (any CSV with a header row will work; the producer reads it row by row)
+
+---
+
+### Step 1 — Start Kafka
+
+Using Phase 5's docker-compose (simplest option):
+
+```bash
+cd ../phase5_social_media
+docker-compose up -d
+```
+
+Wait ~15 seconds for Zookeeper and the Kafka broker to be ready.
+
+---
+
+### Step 2 — Create the Kafka topics needed by each exercise
+
+```bash
+# Q5 and Q8 — basic producer and CSV producer
+kafka-topics.sh --create --topic nifi-transactions \
+  --bootstrap-server localhost:9092 --partitions 1 --replication-factor 1
+
+# Q9 — stateful streams app (input and output topics)
+kafka-topics.sh --create --topic transactions \
+  --bootstrap-server localhost:9092 --partitions 1 --replication-factor 1
+kafka-topics.sh --create --topic high-value-customers \
+  --bootstrap-server localhost:9092 --partitions 1 --replication-factor 1
+
+# Q14 — Spark page-view streaming
+kafka-topics.sh --create --topic page-views \
+  --bootstrap-server localhost:9092 --partitions 1 --replication-factor 1
+
+# Q16 — IoT anomaly detection
+kafka-topics.sh --create --topic sensor-readings \
+  --bootstrap-server localhost:9092 --partitions 1 --replication-factor 1
+kafka-topics.sh --create --topic sensor-alerts \
+  --bootstrap-server localhost:9092 --partitions 1 --replication-factor 1
+```
+
+---
+
+### Step 3 — NiFi mock API (Q2)
+
+```bash
+# Terminal 1: start the mock REST API on localhost:8888
+python phase4_nifi_kafka_spark/nifi/mock_api.py
+```
+
+In the NiFi UI (`http://localhost:8443/nifi`), wire the processors:
+`InvokeHTTP` (GET http://localhost:8888) → `EvaluateJsonPath` → `RouteOnAttribute` → `PutFile`
+
+---
+
+### Step 4 — Kafka exercises (Q5, Q8, Q9)
+
+```bash
+# Q5 — basic producer (sends 2,500 synthetic transactions)
+python phase4_nifi_kafka_spark/kafka/q5_kafka_producer.py
+
+# Q8 — CSV producer with delivery callbacks
+python phase4_nifi_kafka_spark/kafka/q8_csv_producer.py
+
+# Q9 — stateful streams (run the seeder first, then the streams app)
+# Terminal 1: seed the transactions topic with test events
+python phase4_nifi_kafka_spark/kafka/q9_test_producer.py
+# Terminal 2: streams app reads from 'transactions', writes alerts to 'high-value-customers'
+python phase4_nifi_kafka_spark/kafka/q9_streams_app.py
+```
+
+---
+
+### Step 5 — Spark batch jobs (Q11, Q12)
+
+```bash
+# Q11 — top customers per city
+spark-submit phase4_nifi_kafka_spark/spark/q11_top_customers.py
+
+# Q12 — UDF risk classifier (writes three Snowflake tables: HIGH / MEDIUM / LOW risk)
+spark-submit phase4_nifi_kafka_spark/spark/q12_risk_classifier.py
+```
+
+---
+
+### Step 6 — Spark Structured Streaming (Q14, Q16, Q19)
+
+Each streaming job runs in one terminal; the companion producer runs in a second terminal.
+
+```bash
+# Q14 — page-view counter in 5-minute windows
+# Terminal 1: start the stream processor
+spark-submit --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3 \
+  phase4_nifi_kafka_spark/spark/q14_page_views_stream.py
+# Terminal 2: generate page-view events into Kafka
+python phase4_nifi_kafka_spark/spark/q14_pageview_producer.py
+
+# Q16 — IoT anomaly detection
+# Terminal 1: stream processor (reads sensor-readings, writes alerts to sensor-alerts + Snowflake)
+spark-submit --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.3 \
+  phase4_nifi_kafka_spark/spark/q16_anomaly_detection.py
+# (send sensor events to the sensor-readings topic manually or via a producer)
+
+# Q19 — late-data upsert
+# Terminal 1: stream processor
+spark-submit phase4_nifi_kafka_spark/spark/q19_late_data_stream.py
+# Terminal 2: companion producer (sends 60 on-time readings, then 15 late ones)
+python phase4_nifi_kafka_spark/spark/q19_sensor_producer.py
+```
+
+---
+
+### Shutdown
+
+```bash
+# Ctrl+C all running Spark and producer terminals
+# Then stop Kafka
+cd ../phase5_social_media
+docker-compose down
+```

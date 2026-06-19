@@ -33,6 +33,7 @@ with DAG(
     catchup=False,
 ) as dag:
 
+    # Load transaction data: verify source table has data before running expensive queries
     def load_check():
         conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
         cursor = conn.cursor()
@@ -47,6 +48,9 @@ with DAG(
         on_failure_callback=send_failure_email,
     )
 
+    # Apply fraud detection rules + Flag suspicious transactions:
+    # CASE WHEN assigns an alert_type label to each flagged row
+    # WHERE clause mirrors the same four conditions so only suspicious rows are included
     def apply_fraud_rules():
         conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
         cursor = conn.cursor()
@@ -100,6 +104,8 @@ with DAG(
         on_failure_callback=send_failure_email,
     )
 
+    # Generate fraud summary tables: aggregate FRAUD_ALERTS by alert_type
+    # shows confirmation rate (how many flagged rows were actually fraud) and total money at risk
     def generate_summary():
         conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
         cursor = conn.cursor()
@@ -125,6 +131,8 @@ with DAG(
         on_failure_callback=send_failure_email,
     )
 
+    # Daily report: print a formatted column-aligned table to Airflow logs
+    # Schedule daily execution: handled by the DAG schedule='0 8 * * *' above
     def fraud_report():
         conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
         cursor = conn.cursor()

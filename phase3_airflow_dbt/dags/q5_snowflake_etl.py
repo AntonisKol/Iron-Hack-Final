@@ -8,6 +8,8 @@ import os
 
 load_dotenv('/Users/mpe/Desktop/Iron Hack/CAPSTONE /Final project/.env')
 
+# all Snowflake credentials come from .env — never hardcoded in source code
+# ** in connect(**SNOWFLAKE_CONFIG) unpacks the dict as keyword arguments
 SNOWFLAKE_CONFIG = {
     'account': os.getenv('SNOWFLAKE_ACCOUNT'),
     'user': os.getenv('SNOWFLAKE_USER'),
@@ -32,6 +34,7 @@ with DAG(
     catchup=False,
 ) as dag:
 
+    # Task 1 & 2: Verify source data exists before running any expensive transformation
     def check_source_data():
         conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
         cursor = conn.cursor()
@@ -45,6 +48,8 @@ with DAG(
         python_callable=check_source_data,
     )
 
+    # Task 3: Execute transformation SQL — runs entirely inside Snowflake, no data leaves the warehouse
+    # CREATE OR REPLACE makes this idempotent: safe to run multiple times without errors
     def run_transformation():
         conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
         cursor = conn.cursor()
@@ -69,6 +74,7 @@ with DAG(
         python_callable=run_transformation,
     )
 
+    # Task 4: Generate a row-count report — sanity check that the output table looks correct
     def row_count_report():
         conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
         cursor = conn.cursor()

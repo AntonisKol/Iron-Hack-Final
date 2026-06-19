@@ -23,18 +23,24 @@ with DAG(
     catchup=False,
 ) as dag:
 
+    # Task 2: Execute dbt run — BashOperator runs a shell command directly
+    # 'dbt run' rebuilds all models in the project in dependency order (staging before intermediate before mart)
     task_dbt_run = BashOperator(
         task_id='dbt_run',
         bash_command=f'cd "{DBT_PROJECT_DIR}" && /opt/homebrew/bin/dbt run --project-dir .',
-        on_failure_callback=send_failure_email,
+        on_failure_callback=send_failure_email,  # Task 5: email on failure
     )
 
+    # Task 3: Execute dbt test — validates unique/not_null constraints defined in schema.yml
+    # tests only run after dbt run succeeds — if models are broken, no point testing
     task_dbt_test = BashOperator(
         task_id='dbt_test',
         bash_command=f'cd "{DBT_PROJECT_DIR}" && /opt/homebrew/bin/dbt test --project-dir .',
         on_failure_callback=send_failure_email,
     )
 
+    # Task 4: Capture logs — read dbt's log file and print to Airflow task logs
+    # makes it possible to review exactly what dbt did without leaving the Airflow UI
     def capture_logs():
         log_path = f'{DBT_PROJECT_DIR}/logs/dbt.log'
         if os.path.exists(log_path):
@@ -51,4 +57,5 @@ with DAG(
         python_callable=capture_logs,
     )
 
+    # run → test → logs: each step only executes after the previous one succeeds
     task_dbt_run >> task_dbt_test >> task_capture_logs

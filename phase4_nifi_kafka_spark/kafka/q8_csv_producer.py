@@ -9,12 +9,8 @@ TOPIC = 'csv-transactions'
 
 CSV_FILE = os.path.join(os.path.dirname(__file__), 'transactions.csv')
 
-# DELIVERY CALLBACKS 
-# Called by the background I/O thread when the broker confirms or rejects a message.
-
 def on_success(record_metadata, row_id):
     # partition: which Kafka partition stored this message
-    # offset: its position within that partition — a unique, auditable address
     print(f'  [OK] {row_id} → partition {record_metadata.partition}, offset {record_metadata.offset}')
 
 
@@ -40,7 +36,6 @@ failed = 0
 print(f'Reading: {CSV_FILE}')
 print(f'Topic:   {TOPIC}\n')
 
-# CSV READ + SEND LOOP 
 
 try:
     with open(CSV_FILE, newline='') as f:

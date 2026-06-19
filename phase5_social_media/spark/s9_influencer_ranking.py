@@ -8,7 +8,7 @@ import snowflake.connector
 import os
 from utils import SNOWFLAKE_CONFIG, EVENT_SCHEMA as schema
 
-BASE_DIR   = os.path.dirname(__file__)
+BASE_DIR = os.path.dirname(__file__)
 CHECKPOINT = os.path.join(BASE_DIR, 'checkpoints', 's9_checkpoint')
 
 spark = SparkSession.builder \
@@ -30,9 +30,9 @@ raw_stream = spark.readStream \
     .option('failOnDataLoss', 'false') \
     .load()
 
-# ── ENGAGEMENT WEIGHTS ────────────────────────────────────────────────────────
+# ENGAGEMENT WEIGHTS 
 # Each event type is assigned a weight reflecting its effort and reach:
-#   LIKE=1, FOLLOW=2, COMMENT=3, SHARE=5 (shares reach new audiences).
+# LIKE=1, FOLLOW=2, COMMENT=3, SHARE=5 (shares reach new audiences).
 #   VIDEO_VIEW=0.5 (passive — least effort).
 # when().otherwise() is a Spark CASE WHEN — applied to every row in parallel.
 stream_df = (
@@ -43,16 +43,16 @@ stream_df = (
     .withWatermark('ts', '10 minutes')
     .withColumn(
         'weight',
-        when(col('event_type') == 'LIKE',        lit(1.0))
-        .when(col('event_type') == 'COMMENT',     lit(3.0))
-        .when(col('event_type') == 'SHARE',       lit(5.0))
-        .when(col('event_type') == 'VIDEO_VIEW',  lit(0.5))
-        .when(col('event_type') == 'FOLLOW',      lit(2.0))
+        when(col('event_type') == 'LIKE', lit(1.0))
+        .when(col('event_type') == 'COMMENT', lit(3.0))
+        .when(col('event_type') == 'SHARE', lit(5.0))
+        .when(col('event_type') == 'VIDEO_VIEW', lit(0.5))
+        .when(col('event_type') == 'FOLLOW', lit(2.0))
         .otherwise(lit(0.0))
     )
 )
 
-# ── ENGAGEMENT AGGREGATION ────────────────────────────────────────────────────
+# ENGAGEMENT AGGREGATION 
 # 15-minute window per user: sum weighted score + individual event-type counts.
 # count(when(...)): conditional count — only counts rows matching that event type.
 engagement_agg = (
@@ -60,11 +60,11 @@ engagement_agg = (
     .groupBy(window(col('ts'), '15 minutes'), col('user_id'))
     .agg(
         _sum('weight').alias('engagement_score'),
-        count(when(col('event_type') == 'LIKE',       True)).alias('like_count'),
-        count(when(col('event_type') == 'COMMENT',    True)).alias('comment_count'),
-        count(when(col('event_type') == 'SHARE',      True)).alias('share_count'),
+        count(when(col('event_type') == 'LIKE', True)).alias('like_count'),
+        count(when(col('event_type') == 'COMMENT', True)).alias('comment_count'),
+        count(when(col('event_type') == 'SHARE', True)).alias('share_count'),
         count(when(col('event_type') == 'VIDEO_VIEW', True)).alias('video_view_count'),
-        count(when(col('event_type') == 'FOLLOW',     True)).alias('follow_count'),
+        count(when(col('event_type') == 'FOLLOW', True)).alias('follow_count'),
     )
 )
 
@@ -73,11 +73,11 @@ def write_rankings(batch_df, batch_id):
     if batch_df.isEmpty():
         return
 
-    pdf     = batch_df.toPandas()
-    conn    = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
-    cur     = conn.cursor()
+    pdf = batch_df.toPandas()
+    conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
+    cur = conn.cursor()
     now_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
-    rows    = []
+    rows = []
 
     # Rank users within this batch by engagement_score (1 = highest).
     # method='min': tied users share the same rank (e.g., both get rank 2).

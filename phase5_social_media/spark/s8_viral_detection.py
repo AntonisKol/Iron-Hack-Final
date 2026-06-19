@@ -8,7 +8,7 @@ from utils import SNOWFLAKE_CONFIG, EVENT_SCHEMA as schema
 
 VIRAL_THRESHOLD = 500
 
-BASE_DIR   = os.path.dirname(__file__)
+BASE_DIR = os.path.dirname(__file__)
 CHECKPOINT = os.path.join(BASE_DIR, 'checkpoints', 's8_checkpoint')
 
 spark = SparkSession.builder \
@@ -38,7 +38,7 @@ stream_df = (
     .withWatermark('ts', '5 minutes')
 )
 
-# ── LIKE COUNT PER POST PER 5-MINUTE WINDOW ───────────────────────────────────
+# LIKE COUNT PER POST PER 5-MINUTE WINDOW 
 # Only LIKE events with a post_id count toward virality.
 # groupBy window + post_id: count how many likes each post received in each 5-min bucket.
 like_counts = (
@@ -49,7 +49,7 @@ like_counts = (
     .agg(count('*').alias('like_count'))
 )
 
-# ── FOREACH BATCH HANDLER — VIRAL THRESHOLD CHECK ────────────────────────────
+# FOREACH BATCH HANDLER — VIRAL THRESHOLD CHECK 
 # The threshold filter must happen AFTER counting — we need all posts' counts
 # before we know which ones crossed 500. Filtering before counting would miss posts
 # that accumulate likes across multiple batches.
@@ -62,19 +62,19 @@ def detect_and_write(batch_df, batch_id):
     if viral_df.isEmpty():
         return
 
-    pdf     = viral_df.toPandas()
-    conn    = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
-    cur     = conn.cursor()
+    pdf = viral_df.toPandas()
+    conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
+    cur = conn.cursor()
     now_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
-    rows    = []
+    rows = []
 
     for _, row in pdf.iterrows():
-        w_start  = str(row['window']['start'])
-        w_end    = str(row['window']['end'])
+        w_start = str(row['window']['start'])
+        w_end = str(row['window']['end'])
         post_id  = str(row['post_id'])
-        likes    = int(row['like_count'])
+        likes = int(row['like_count'])
 
-        print(f'  🔥 VIRAL DETECTED: {post_id} — {likes} likes in window {w_start} → {w_end}')
+        print(f'VIRAL DETECTED: {post_id} — {likes} likes in window {w_start} → {w_end}')
 
         rows.append((post_id, w_start, w_end, likes, now_str))
 
@@ -85,7 +85,7 @@ def detect_and_write(batch_df, batch_id):
         rows,
     )
     conn.close()
-    print(f'  Batch {batch_id}: {len(rows)} viral posts → VIRAL_POSTS')
+    print(f'Batch {batch_id}: {len(rows)} viral posts → VIRAL_POSTS')
 
 
 query = like_counts.writeStream \

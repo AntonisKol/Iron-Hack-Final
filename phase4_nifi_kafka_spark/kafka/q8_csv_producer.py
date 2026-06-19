@@ -59,7 +59,7 @@ except FileNotFoundError:
     exit(1)
 
 
-# flush() blocks until all pending callbacks have fired — nothing is lost on exit.
+# flush() blocks until all pending callbacks have fired and all messages have been sent to the broker (or failed after retries).
 print('Flushing — waiting for all broker acks...')
 producer.flush()
 producer.close()

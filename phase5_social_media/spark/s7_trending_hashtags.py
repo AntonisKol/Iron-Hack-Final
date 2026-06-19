@@ -8,7 +8,7 @@ import snowflake.connector
 import os
 from utils import SNOWFLAKE_CONFIG, EVENT_SCHEMA as schema
 
-BASE_DIR   = os.path.dirname(__file__)
+BASE_DIR = os.path.dirname(__file__)
 CHECKPOINT = os.path.join(BASE_DIR, 'checkpoints', 's7_checkpoint')
 
 spark = SparkSession.builder \
@@ -56,12 +56,12 @@ def make_window_agg(df, window_duration, slide_duration=None):
         else window(col('ts'), window_duration)
     return (
         df.groupBy(w, col('hashtag'))
-          .agg(count('*').alias('mention_count'))
-          .withColumn('window_size', lit(window_duration))
+        .agg(count('*').alias('mention_count'))
+        .withColumn('window_size', lit(window_duration))
     )
 
-agg_1m  = make_window_agg(hashtag_df, '1 minute')
-agg_5m  = make_window_agg(hashtag_df, '5 minutes')
+agg_1m = make_window_agg(hashtag_df, '1 minute')
+agg_5m = make_window_agg(hashtag_df, '5 minutes')
 agg_15m = make_window_agg(hashtag_df, '15 minutes')
 
 # union() stacks the three DataFrames — one Snowflake table holds all window sizes.
@@ -72,11 +72,11 @@ def write_trending(batch_df, batch_id):
     if batch_df.isEmpty():
         return
 
-    pdf     = batch_df.toPandas()
-    conn    = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
-    cur     = conn.cursor()
+    pdf = batch_df.toPandas()
+    conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
+    cur = conn.cursor()
     now_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
-    rows    = []
+    rows = []
 
     for _, row in pdf.iterrows():
         rows.append((

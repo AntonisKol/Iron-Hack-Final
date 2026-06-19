@@ -7,11 +7,10 @@ import json
 import os
 from utils import SNOWFLAKE_CONFIG, EVENT_SCHEMA as schema, nan_to_none
 
-BASE_DIR   = os.path.dirname(__file__)
+BASE_DIR = os.path.dirname(__file__)
 CHECKPOINT = os.path.join(BASE_DIR, 'checkpoints', 's6_checkpoint')
 
-
-# ── DIMENSION PRELOAD ─────────────────────────────────────────────────────────
+# DIMENSION PRELOAD
 # Both dimension tables are loaded into Python dicts at startup — once, not per event.
 # This avoids a Snowflake round-trip for every record in every micro-batch.
 # user_dim: user_id → {username, user_type}
@@ -28,7 +27,7 @@ def load_dimensions():
     for row in cur.fetchall():
         post_dim[row[0]] = {
             'content_type': row[1],
-            'hashtags':     row[2],
+            'hashtags': row[2],
         }
 
     conn.close()
@@ -61,7 +60,7 @@ stream_df = raw_stream.select(
 ).select('d.*')
 
 
-# ── FOREACH BATCH HANDLER — ENRICHMENT ───────────────────────────────────────
+# FOREACH BATCH HANDLER — ENRICHMENT
 # For each event, look up the user and post details from the preloaded dicts.
 # Falls back to defaults ('unknown', 'regular') if the user/post is not in the dim table.
 # Output goes to CURATED.CURATED_EVENTS — the "value-added" version of the raw events.
@@ -69,15 +68,15 @@ def enrich_and_write(batch_df, batch_id):
     if batch_df.isEmpty():
         return
 
-    pdf     = batch_df.toPandas()
-    conn    = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
-    cur     = conn.cursor()
+    pdf = batch_df.toPandas()
+    conn = snowflake.connector.connect(**SNOWFLAKE_CONFIG)
+    cur = conn.cursor()
     now_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
-    rows    = []
+    rows = []
 
     for _, row in pdf.iterrows():
-        uid    = str(row.get('user_id') or '')
-        pid    = str(row.get('post_id') or '') or None
+        uid = str(row.get('user_id') or '')
+        pid = str(row.get('post_id') or '') or None
 
         # Dict lookup — O(1), no SQL query per row
         user_info = user_dim.get(uid, {'username': 'unknown', 'user_type': 'regular'})

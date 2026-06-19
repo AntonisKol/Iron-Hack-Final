@@ -2,7 +2,7 @@
 from kafka import KafkaConsumer
 import json
 
-TOPIC  = 'social-events'
+TOPIC = 'social-events'
 BROKER = 'localhost:9092'
 
 consumer = KafkaConsumer(
@@ -18,20 +18,20 @@ print(f'Press Ctrl+C to stop.\n')
 print(f'{"#":>6}  {"EventType":<16}  {"User":<8}  {"Post/Target":<12}  Timestamp')
 print('-' * 70)
 
-counts  = {}
-total   = 0
+counts = {}
+total = 0
 
 try:
     for msg in consumer:
-        event      = msg.value
-        etype      = event.get('event_type', 'UNKNOWN')
+        event = msg.value
+        etype = event.get('event_type', 'UNKNOWN')
         counts[etype] = counts.get(etype, 0) + 1
         total += 1
 
         if total % 50 == 0:
             print(f'  [{total:>5}]  {etype:<16}  {event.get("user_id","—"):<8}  '
-                  f'{event.get("post_id", event.get("target_user_id", "—")):<12}  '
-                  f'{event.get("timestamp","—")}')
+                f'{event.get("post_id", event.get("target_user_id", "—")):<12}  '
+                f'{event.get("timestamp","—")}')
 
 except KeyboardInterrupt:
     print(f'\n=== Validation Summary ===')

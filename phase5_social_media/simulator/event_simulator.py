@@ -18,20 +18,20 @@ except ImportError:
 
 load_dotenv('/Users/mpe/Desktop/Iron Hack/CAPSTONE /Final project/.env')
 
-NUM_USERS         = 100
-NUM_POSTS         = 500
-NUM_INFLUENCERS   = 10
-NUM_VIRAL_POSTS   = 50
+NUM_USERS = 100
+NUM_POSTS = 500
+NUM_INFLUENCERS = 10
+NUM_VIRAL_POSTS = 50
 EVENTS_PER_MINUTE = 1000
-SLEEP_INTERVAL    = 60.0 / EVENTS_PER_MINUTE
-VIRAL_BURST_SIZE  = 600
-KAFKA_TOPIC       = 'social-events'
+SLEEP_INTERVAL = 60.0 / EVENTS_PER_MINUTE
+VIRAL_BURST_SIZE = 600
+KAFKA_TOPIC = 'social-events'
 
 SNOWFLAKE_CONFIG = {
-    'account':   os.getenv('SNOWFLAKE_ACCOUNT'),
-    'user':      os.getenv('SNOWFLAKE_USER'),
-    'password':  os.getenv('SNOWFLAKE_PASSWORD'),
-    'database':  'SOCIAL_MEDIA_DB',
+    'account': os.getenv('SNOWFLAKE_ACCOUNT'),
+    'user': os.getenv('SNOWFLAKE_USER'),
+    'password': os.getenv('SNOWFLAKE_PASSWORD'),
+    'database': 'SOCIAL_MEDIA_DB',
     'warehouse': os.getenv('SNOWFLAKE_WAREHOUSE'),
 }
 
@@ -45,10 +45,10 @@ HASHTAG_POOL = [
 ]
 
 CONTENT_TYPES = ['image', 'video', 'text', 'reel', 'story']
-COUNTRIES     = ['US', 'UK', 'DE', 'FR', 'IN', 'BR', 'JP', 'CA', 'AU', 'MX']
+COUNTRIES = ['US', 'UK', 'DE', 'FR', 'IN', 'BR', 'JP', 'CA', 'AU', 'MX']
 
 POSITIVE_COMMENTS = [
-    'Love this! 🔥', 'Amazing content!', 'This is incredible!',
+    'Love this! ', 'Amazing content!', 'This is incredible!',
     'Best post today!', 'Absolutely stunning!', 'Keep it up!',
     'This made my day!', 'Fantastic work!', 'You are the best!',
     'So inspiring!', 'Incredible job!', 'This is wonderful!',
@@ -72,12 +72,12 @@ COMMENT_POOL = (
 )
 
 EVENT_TYPE_POOL = (
-    ['LIKE']          * 35 +
-    ['VIDEO_VIEW']    * 25 +
+    ['LIKE'] * 35 +
+    ['VIDEO_VIEW'] * 25 +
     ['PROFILE_VISIT'] * 15 +
-    ['COMMENT']       * 10 +
-    ['SHARE']         *  7 +
-    ['FOLLOW']        *  5 +
+    ['COMMENT'] * 10 +
+    ['SHARE'] *  7 +
+    ['FOLLOW'] *  5 +
     ['POST_CREATED']  *  3
 )
 
@@ -117,10 +117,10 @@ def populate_dimensions():
     print(f'Inserting {NUM_POSTS} posts into POST_DIM...')
     cur.execute('TRUNCATE TABLE POST_DIM')
     for i in range(1, NUM_POSTS + 1):
-        pid   = make_post_id(i)
-        uid   = make_user_id(random.randint(1, NUM_USERS))
+        pid = make_post_id(i)
+        uid = make_user_id(random.randint(1, NUM_USERS))
         ctype = random.choice(CONTENT_TYPES)
-        tags  = json.dumps(random.sample(HASHTAG_POOL, k=random.randint(1, 5)))
+        tags = json.dumps(random.sample(HASHTAG_POOL, k=random.randint(1, 5)))
         cur.execute(
             'INSERT INTO POST_DIM (post_id, user_id, content_type, hashtags, created_at) '
             'SELECT %s, %s, %s, PARSE_JSON(%s), %s',
@@ -134,14 +134,14 @@ def populate_dimensions():
 def generate_event(event_type=None, viral_post_id=None):
     if viral_post_id:
         event_type = 'LIKE'
-        post_id    = viral_post_id
+        post_id = viral_post_id
     else:
         event_type = event_type or random.choice(EVENT_TYPE_POOL)
-        post_num   = random.randint(1, NUM_VIRAL_POSTS) if random.random() < 0.3 else random.randint(1, NUM_POSTS)
-        post_id    = make_post_id(post_num)
+        post_num = random.randint(1, NUM_VIRAL_POSTS) if random.random() < 0.3 else random.randint(1, NUM_POSTS)
+        post_id = make_post_id(post_num)
 
     user_id = make_user_id(random.randint(1, NUM_USERS))
-    now     = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S')
+    now = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S')
 
     event = {
         'event_id':   str(uuid.uuid4()),
@@ -186,7 +186,7 @@ def write_event(event, producer=None):
 
 def viral_burst(producer=None):
     viral_post_id = make_post_id(random.randint(1, NUM_VIRAL_POSTS))
-    print(f'\n🔥 VIRAL BURST → {viral_post_id} ({VIRAL_BURST_SIZE} likes)\n')
+    print(f'\n VIRAL BURST → {viral_post_id} ({VIRAL_BURST_SIZE} likes)\n')
     for _ in range(VIRAL_BURST_SIZE):
         event = generate_event(viral_post_id=viral_post_id)
         write_event(event, producer)
@@ -207,7 +207,7 @@ def main():
         except Exception as e:
             print(f'[WARN] Kafka not reachable ({e}) — events will be dropped\n')
 
-    total_sent  = 0
+    total_sent = 0
     burst_every = 60
 
     print('Streaming events... (Ctrl+C to stop)\n')
@@ -226,8 +226,8 @@ def main():
                 elapsed  = time.time() - start_time
                 rate_min = total_sent / elapsed * 60
                 print(f'  [{total_sent:>7}]  {event["event_type"]:<15}  {event["user_id"]}  '
-                      f'{event.get("post_id", event.get("target_user_id", "—")):<10}  '
-                      f'{event["timestamp"]}  ({rate_min:.0f} evt/min)')
+                    f'{event.get("post_id", event.get("target_user_id", "—")):<10}  '
+                    f'{event["timestamp"]}  ({rate_min:.0f} evt/min)')
 
             elapsed = time.time() - start_time
             if int(elapsed) > 0 and int(elapsed) % burst_every == 0 and total_sent % 10 == 0:
